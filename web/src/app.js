@@ -344,6 +344,54 @@ function restoreModelPrefs() {
   p.models?.forEach((v, i) => S.rig.models[i] && S.rig.setModelVisible(S.rig.models[i], v));
 }
 
+// ---------------------------------------------------------------- bottom sheet size & live preview
+const SHEET_SIZES = { peek: 30, half: 50, full: 80 };
+let sheetSize = platform.store.get('sheetSize', 'peek');
+function setSheetSize(sz, px) {
+  if (sz) { sheetSize = sz; platform.store.set('sheetSize', sz); }
+  document.body.style.setProperty('--sheet-max', px != null ? `${px}px` : `${SHEET_SIZES[sheetSize]}vh`);
+  document.querySelectorAll('#grip .sz button').forEach((b) => b.classList.toggle('on', b.dataset.sz === sheetSize));
+}
+setSheetSize(sheetSize);
+document.querySelectorAll('#grip .sz button').forEach((b) => b.addEventListener('click', (e) => { e.stopPropagation(); setSheetSize(b.dataset.sz); }));
+{
+  const grip = $('#grip');
+  let drag = null;
+  grip.addEventListener('pointerdown', (e) => {
+    if (e.target.closest('button')) return;
+    drag = { y: e.clientY, h: $('#sheet').offsetHeight, moved: false };
+    grip.setPointerCapture(e.pointerId);
+  });
+  grip.addEventListener('pointermove', (e) => {
+    if (!drag) return;
+    const dy = drag.y - e.clientY;
+    if (Math.abs(dy) > 4) drag.moved = true;
+    if (drag.moved) setSheetSize(null, Math.max(90, Math.min(innerHeight * 0.85, drag.h + dy)));
+  });
+  const end = () => {
+    if (!drag) return;
+    if (!drag.moved) setSheetSize(sheetSize === 'peek' ? 'half' : 'peek');
+    else {
+      const vh = ($('#sheet').offsetHeight / innerHeight) * 100;
+      const best = Object.entries(SHEET_SIZES).sort((a, b) => Math.abs(a[1] - vh) - Math.abs(b[1] - vh))[0][0];
+      if (vh < 18) { S.tab = null; renderTab(); } else setSheetSize(best);
+    }
+    drag = null;
+  };
+  grip.addEventListener('pointerup', end);
+  grip.addEventListener('pointercancel', end);
+}
+// While a slider is held, hide the rest of the panel so the change is visible on the model.
+document.addEventListener('pointerdown', (e) => {
+  const r = e.target.closest?.('#sheetBody input[type=range]');
+  if (!r) return;
+  const row = r.closest('.row') ?? r.parentElement;
+  row.classList.add('live-row');
+  document.body.classList.add('live');
+  const stop = () => { document.body.classList.remove('live'); row.classList.remove('live-row'); removeEventListener('pointerup', stop); removeEventListener('pointercancel', stop); };
+  addEventListener('pointerup', stop); addEventListener('pointercancel', stop);
+});
+
 // ---------------------------------------------------------------- tabs
 const tabs = {
   anim: renderAnimTab, pose: renderPoseTab, parts: renderPartsTab, equip: renderEquipTab,
@@ -364,7 +412,6 @@ function renderTab() {
   sheet.hidden = false;
   const scroll = body.scrollTop;
   body.replaceChildren();
-  sheet.classList.toggle('tall', ['anim', 'face', 'lights'].includes(S.tab));
   if (!S.rig && !['lights', 'scene', 'look'].includes(S.tab)) {
     body.append(h('p', { class: 'hint' }, 'Abre un modelo desde la biblioteca (☰) para empezar.'));
     return;
@@ -497,32 +544,28 @@ function setCutMode(v) {
   $('#pickHint').hidden = !v;
   $('#pickHint').textContent = 'Modo tijera: toca una pieza del modelo para ocultarla';
 }
+function sw(checked, onChange) {
+  return h('label', { class: 'switch sm', onclick: (e) => e.stopPropagation() }, h('input', { type: 'checkbox', checked, onchange: (e) => onChange(e.target.checked) }), h('span'));
+}
 function renderPartsTab(body) {
-  body.append(h('h3', {}, 'Piezas sueltas'));
   body.append(h('div', { class: 'grid3' },
-    h('button', { class: 'btn' + (S.cutMode ? ' on' : ''), onclick: () => { setCutMode(!S.cutMode); renderTab(); } }, S.cutMode ? '✂ Tijera activa' : '✂ Modo tijera'),
+    h('button', { class: 'btn' + (S.cutMode ? ' on' : ''), onclick: () => { setCutMode(!S.cutMode); renderTab(); } }, S.cutMode ? '✂ Activa' : '✂ Tijera'),
     h('button', { class: 'btn', onclick: () => { const c = cutHistory.pop(); if (c) { setIslandHidden(c.section, c.island, false); saveModelPrefs(); renderTab(); } } }, '↶ Deshacer'),
     h('button', { class: 'btn', onclick: () => {
       for (const { model, section } of S.rig.allSections()) { for (const i of [...section.hidden]) setIslandHidden(section, i, false); S.rig.setSectionVisible(model, section, true); }
       S.rig.models.forEach((m) => S.rig.setModelVisible(m, true)); cutHistory.length = 0; saveModelPrefs(); renderTab();
-    } }, 'Mostrar todo'),
+    } }, '⟲ Todo'),
   ));
-  body.append(h('p', { class: 'hint' }, 'Con la tijera, cada toque oculta la pieza suelta que tocas (pantalón, falda, lazo, guante…). Las secciones de abajo ocultan grupos enteros de material.'));
+  if (S.cutMode) body.append(h('p', { class: 'hint' }, 'Toca una pieza del modelo para ocultarla. Puedes bajar este panel para ver mejor.'));
   for (const model of S.rig.models) {
-    const card = h('div', { class: 'card' });
-    card.append(h('div', { class: 'head' }, h('span', { class: 'grow' }, model.name),
-      h('label', { class: 'switch' }, h('input', { type: 'checkbox', checked: model.visible, onchange: (e) => { S.rig.setModelVisible(model, e.target.checked); saveModelPrefs(); } }), h('span'))));
+    body.append(h('div', { class: 'lrow' }, h('span', { class: 'name' }, h('b', {}, model.name)), sw(model.visible, (v) => { S.rig.setModelVisible(model, v); saveModelPrefs(); })));
     for (const s of model.meshes) {
-      const isl = s.islands ?? null;
-      const row = h('div', { class: 'row' },
-        h('label', {}, s.label, s.hidden.size ? h('span', { class: 'sub' }, `  · ${s.hidden.size} pieza(s) ocultas`) : null),
-        h('button', { class: 'chip small', onclick: () => { toonGlobals.uHighlight.value = toonGlobals.uHighlight.value === s.sectionId ? -1 : s.sectionId; setTimeout(() => { if (toonGlobals.uHighlight.value === s.sectionId) toonGlobals.uHighlight.value = -1; }, 1500); } }, 'Ver'),
-        h('button', { class: 'chip small', onclick: () => renderIslands(model, s) }, 'Piezas'),
-        h('label', { class: 'switch' }, h('input', { type: 'checkbox', checked: s.visible, onchange: (e) => { S.rig.setSectionVisible(model, s, e.target.checked); saveModelPrefs(); } }), h('span')));
-      void isl;
-      card.append(row);
+      body.append(h('div', { class: 'lrow', style: { paddingLeft: '12px' } },
+        h('span', { class: 'name' }, s.label, s.hidden.size ? h('span', { class: 'sub' }, ` · ${s.hidden.size} oculta(s)`) : null),
+        h('button', { class: 'ic', title: 'Resaltar', onclick: () => { toonGlobals.uHighlight.value = s.sectionId; setTimeout(() => { if (toonGlobals.uHighlight.value === s.sectionId) toonGlobals.uHighlight.value = -1; }, 1500); } }, '👁'),
+        h('button', { class: 'ic', title: 'Piezas', onclick: () => renderIslands(model, s) }, '⋯'),
+        sw(s.visible, (v) => { S.rig.setSectionVisible(model, s, v); saveModelPrefs(); })));
     }
-    body.append(card);
   }
 }
 function renderIslands(model, s) {
@@ -633,47 +676,49 @@ function renderFaceTab(body) {
 
 // ---- Lights
 function renderLightsTab(body) {
-  body.append(h('h3', {}, 'Ambientes de luz'));
-  body.append(h('div', { class: 'chips' }, Object.keys(LIGHT_PRESETS).map((n) => h('button', { class: 'chip', onclick: () => { viewer.setLights(LIGHT_PRESETS[n]()); saveLights(); renderTab(); } }, n))));
-  body.append(toggle('Mostrar posición de las luces', viewer.markers.visible, (v) => (viewer.markers.visible = v)));
-  body.append(h('h3', {}, `Luces (${viewer.lights.length})`));
-  const addRow = h('div', { class: 'chips' }, Object.entries(LIGHT_TYPES).map(([t, l]) => h('button', { class: 'chip small', onclick: () => {
-    viewer.lights.push(newLight(t, { name: `${l} ${viewer.lights.filter((x) => x.type === t).length + 1}`, azimuth: Math.round(Math.random() * 360) }));
-    viewer.rebuildLights(); saveLights(); renderTab();
-  } }, '＋ ' + l)));
-  body.append(addRow);
-  if (viewer.lights.length > 12) body.append(h('p', { class: 'hint' }, 'Muchas luces pueden ir lentas en móviles modestos.'));
+  body.append(h('div', { class: 'chips', style: { flexWrap: 'nowrap', overflowX: 'auto' } }, Object.keys(LIGHT_PRESETS).map((n) => h('button', { class: 'chip', style: { flex: 'none' }, onclick: () => { viewer.setLights(LIGHT_PRESETS[n]()); S.openLight = null; saveLights(); renderTab(); } }, n))));
+  body.append(h('div', { class: 'row' },
+    h('select', { class: 'full', style: { flex: '1' }, onchange: (e) => {
+      const t = e.target.value; if (!t) return;
+      const L = newLight(t, { name: `${LIGHT_TYPES[t]} ${viewer.lights.filter((x) => x.type === t).length + 1}`, azimuth: Math.round(Math.random() * 360) });
+      viewer.lights.push(L); S.openLight = L.id; viewer.rebuildLights(); saveLights(); renderTab();
+    } }, h('option', { value: '' }, '＋ Añadir luz…'), Object.entries(LIGHT_TYPES).map(([t, l]) => h('option', { value: t }, l))),
+    h('button', { class: 'ic' + (viewer.markers.visible ? ' on' : ''), title: 'Ver posición de las luces', style: { height: '38px' }, onclick: () => { viewer.markers.visible = !viewer.markers.visible; renderTab(); } }, '◎')));
   viewer.lights.forEach((L, i) => {
     const upd = () => { viewer.updateLights(); saveLights(); };
-    const card = h('details', { class: 'card', open: viewer.lights.length <= 3 });
-    card.append(h('summary', {},
-      h('span', { style: { display: 'inline-block', width: '14px', height: '14px', borderRadius: '50%', background: L.color, border: '1px solid #fff4' } }),
-      ` ${L.name}`, h('span', { class: 'sub' }, ` · ${LIGHT_TYPES[L.type]}${L.enabled ? '' : ' (apagada)'}`)));
-    const inner = h('div', { class: 'inner' });
-    inner.append(toggle('Encendida', L.enabled, (v) => { L.enabled = v; upd(); }));
+    const open = S.openLight === L.id;
+    body.append(h('div', { class: 'lrow', onclick: () => { S.openLight = open ? null : L.id; renderTab(); } },
+      h('span', { class: 'dot', style: { background: L.color } }),
+      h('span', { class: 'name' }, L.name, h('span', { class: 'sub' }, ` · ${L.name === LIGHT_TYPES[L.type] ? '' : LIGHT_TYPES[L.type] + ' · '}${(+L.intensity).toFixed(1)}`)),
+      sw(L.enabled, (v) => { L.enabled = v; upd(); }),
+      h('span', { class: 'sub' }, open ? '▾' : '▸')));
+    if (!open) return;
+    const inner = h('div', { class: 'lpanel' });
+    requestAnimationFrame(() => inner.scrollIntoView({ block: 'nearest' }));
     inner.append(h('div', { class: 'row' }, h('label', {}, 'Color'), h('input', { type: 'color', value: L.color, oninput: (e) => { L.color = e.target.value; upd(); } }),
       L.type === 'hemisphere' ? h('label', {}, 'Suelo') : null,
       L.type === 'hemisphere' ? h('input', { type: 'color', value: L.groundColor, oninput: (e) => { L.groundColor = e.target.value; upd(); } }) : null));
     inner.append(slider('Intensidad', { min: 0, max: L.type === 'point' || L.type === 'spot' ? 20 : 4, value: L.intensity, onInput: (v) => { L.intensity = v; upd(); } }));
     if (L.type !== 'ambient' && L.type !== 'hemisphere') {
-      inner.append(slider('Ángulo horizontal', { min: -180, max: 180, step: 1, value: ((L.azimuth + 180) % 360 + 360) % 360 - 180, onInput: (v) => { L.azimuth = v; upd(); }, fmt: (v) => `${Math.round(v)}°` }));
+      inner.append(slider('Horizontal', { min: -180, max: 180, step: 1, value: ((L.azimuth + 180) % 360 + 360) % 360 - 180, onInput: (v) => { L.azimuth = v; upd(); }, fmt: (v) => `${Math.round(v)}°` }));
       inner.append(slider('Altura', { min: -89, max: 89, step: 1, value: L.elevation, onInput: (v) => { L.elevation = v; upd(); }, fmt: (v) => `${Math.round(v)}°` }));
-      inner.append(toggle('Girar con la cámara', L.followCamera, (v) => { L.followCamera = v; upd(); }));
     }
     if (L.type === 'point' || L.type === 'spot') inner.append(slider('Distancia', { min: 0.3, max: 8, value: L.distance, onInput: (v) => { L.distance = v; upd(); } }));
     if (L.type === 'spot') {
       inner.append(slider('Apertura', { min: 3, max: 80, step: 1, value: L.angle, onInput: (v) => { L.angle = v; upd(); }, fmt: (v) => `${Math.round(v)}°` }));
       inner.append(slider('Borde suave', { min: 0, max: 1, value: L.penumbra, onInput: (v) => { L.penumbra = v; upd(); } }));
     }
-    if (L.type === 'directional' || L.type === 'spot') inner.append(toggle('Proyecta sombra', L.castShadow, (v) => { L.castShadow = v; upd(); }));
-    inner.append(h('div', { class: 'row' },
-      h('input', { type: 'text', value: L.name, onchange: (e) => { L.name = e.target.value; saveLights(); renderTab(); }, style: { flex: '1' } }),
-      h('button', { class: 'btn', onclick: () => { viewer.lights.splice(i + 1, 0, newLight(L.type, { ...L, id: undefined, name: L.name + ' (copia)' })); viewer.rebuildLights(); saveLights(); renderTab(); } }, 'Duplicar'),
-      h('button', { class: 'btn danger', onclick: () => { viewer.lights.splice(i, 1); viewer.rebuildLights(); saveLights(); renderTab(); } }, 'Borrar')));
-    card.append(inner);
-    body.append(card);
+    const opts = h('div', { class: 'chips' });
+    if (L.type !== 'ambient' && L.type !== 'hemisphere') opts.append(h('button', { class: 'chip small', 'aria-pressed': String(L.followCamera), onclick: () => { L.followCamera = !L.followCamera; upd(); renderTab(); } }, 'Gira con la cámara'));
+    if (L.type === 'directional' || L.type === 'spot') opts.append(h('button', { class: 'chip small', 'aria-pressed': String(L.castShadow), onclick: () => { L.castShadow = !L.castShadow; upd(); renderTab(); } }, 'Sombra'));
+    opts.append(
+      h('button', { class: 'chip small', onclick: () => { const n = prompt('Nombre de la luz', L.name); if (n) { L.name = n; saveLights(); renderTab(); } } }, '✎ Nombre'),
+      h('button', { class: 'chip small', onclick: () => { const c = newLight(L.type, { ...L, id: undefined, name: L.name + ' (copia)' }); viewer.lights.splice(i + 1, 0, c); S.openLight = c.id; viewer.rebuildLights(); saveLights(); renderTab(); } }, '⧉ Duplicar'),
+      h('button', { class: 'chip small danger', onclick: () => { viewer.lights.splice(i, 1); viewer.rebuildLights(); saveLights(); renderTab(); } }, '🗑 Borrar'));
+    inner.append(opts);
+    if (L.type === 'ambient') inner.append(h('p', { class: 'hint' }, 'Fija lo oscuras que son las sombras del dibujo.'));
+    body.append(inner);
   });
-  body.append(h('p', { class: 'hint' }, 'La luz «Ambiente» fija lo oscuras que son las sombras del dibujo (toon). Las demás iluminan y crean brillos de borde.'));
 }
 
 // ---- Scene
