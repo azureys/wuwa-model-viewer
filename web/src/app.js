@@ -7,6 +7,7 @@ import { loadAnim, buildClip, sampleCurve, describeAnims, ribbonFor, ribbonTrack
 import { toonGlobals } from './toon.js';
 import { PoseTool, SpringBones, BODY_PARTS, FINGER_PARTS } from './pose.js';
 import * as platform from './platform.js';
+import { music } from './music.js';
 import { fetchRoster, fetchCharacter, downloadCharacter } from './encore.js';
 
 const $ = (s) => document.querySelector(s);
@@ -749,6 +750,16 @@ function renderSceneTab(body) {
   body.append(slider('Campo de visión', { min: 10, max: 75, step: 1, value: look.fov, onInput: (v) => { look.fov = v; applyLook(); }, fmt: (v) => `${Math.round(v)}°` }));
   body.append(toggle('Girar automáticamente', viewer.controls.autoRotate, (v) => { viewer.controls.autoRotate = v; }));
   body.append(slider('Velocidad de giro', { min: -10, max: 10, step: 0.5, value: viewer.controls.autoRotateSpeed, onInput: (v) => (viewer.controls.autoRotateSpeed = v), fmt: (v) => (+v).toFixed(1) }));
+  body.append(h('h3', {}, 'Música de fondo'));
+  if (music.name) {
+    body.append(h('div', { class: 'lrow' },
+      h('span', { class: 'name' }, '🎵 ' + music.name),
+      sw(music.enabled, (v) => { music.setEnabled(v); })));
+    body.append(slider('Volumen', { min: 0, max: 1, step: 0.01, value: music.volume, onInput: (v) => music.setVolume(v), fmt: (v) => `${Math.round(v * 100)}%` }));
+  } else body.append(h('p', { class: 'hint' }, 'Elige un archivo de audio del móvil (por ejemplo el tema del menú de personajes). Sonará en bucle mientras usas el visor.'));
+  body.append(h('div', { class: 'grid3' },
+    h('button', { class: 'btn', onclick: async () => { const f = await platform.pickFile('audio/*'); if (!f) return; await music.load(f); toast('Música: ' + music.name); renderTab(); } }, music.name ? '🔄 Cambiar' : '🎵 Elegir audio'),
+    music.name ? h('button', { class: 'btn', onclick: async () => { await music.remove(); renderTab(); } }, '🗑 Quitar') : null));
   body.append(h('h3', {}, 'Captura'));
   body.append(h('div', { class: 'grid3' },
     h('button', { class: 'btn', onclick: () => shot({}) }, '📷 Normal'),
@@ -902,6 +913,7 @@ platform.onFileSaved((msg) => toast(msg));
   if (m) openModel(m.id, m.name); else openLibrary();
 })();
 document.addEventListener('visibilitychange', () => { if (S.modelId) platform.store.set('lastModel', S.modelId); });
+music.init();
 window.__dbg = { S, viewer, pose, springs, THREE, playAnim, renderTab, setCutMode };
 // Android back button: close the open layer first
 window.__wuwaBack = () => {
