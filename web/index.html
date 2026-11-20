@@ -57,12 +57,21 @@
       <h1>Biblioteca</h1>
       <button class="icon" id="btnCloseLibrary">✕</button>
     </div>
-    <p class="hint">Importa el <b>.zip</b> que descargas desde el visor 3D de encore.moe (botón «Download .zip»). Todo se guarda en el móvil y funciona sin conexión.</p>
-    <button class="primary" id="btnImport">＋ Importar .zip</button>
+    <p class="hint">Descarga personajes directamente de encore.moe o importa un <b>.zip</b> bajado de su visor 3D («Download .zip»). Todo se guarda en el móvil y funciona sin conexión.</p>
+    <button class="primary" id="btnStore">⬇ Descargar de encore.moe</button>
+    <button class="btn wide" id="btnImport">＋ Importar .zip del móvil</button>
     <div id="importProgress" hidden><div class="bar"><div></div></div><span></span></div>
     <ul id="modelList"></ul>
   </div>
 </div>
+  <div id="store" hidden>
+    <div class="lib-head">
+      <button class="icon" id="btnStoreBack">←</button>
+      <h1 id="storeTitle">encore.moe</h1>
+      <button class="icon" id="btnStoreClose">✕</button>
+    </div>
+    <div id="storeBody"></div>
+  </div>
 <input type="file" id="filePicker" hidden>
 <script type="module" src="src/app.js"></script>
 </body>

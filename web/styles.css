@@ -107,3 +107,15 @@ body.ui-hidden #topbar > :not(#btnHideUi), body.ui-hidden #tabs, body.ui-hidden 
 body.ui-hidden #topbar { background: none; justify-content: flex-end; }
 body.ui-hidden #title { visibility: hidden; }
 [hidden] { display: none !important; }
+
+.btn.wide { width: 100%; margin-top: 8px; padding: 10px; }
+#store { position: absolute; inset: 0; background: var(--bg); z-index: 21; padding: calc(12px + var(--safe-t)) 14px calc(14px + var(--safe-b)); overflow-y: auto; }
+#store .lib-head h1 { flex: 1; margin: 6px 10px; font-size: 20px; }
+.roster { display: grid; grid-template-columns: repeat(auto-fill, minmax(92px, 1fr)); gap: 10px; margin-top: 12px; }
+.roster button { background: var(--panel2); border: 1px solid var(--line); border-radius: 14px; padding: 8px 4px; display: flex; flex-direction: column; align-items: center; gap: 4px; font-size: 12px; }
+.roster button.q5 { border-color: #b8913f; }
+.roster img { width: 64px; height: 64px; border-radius: 50%; background: #0006; object-fit: cover; }
+.roster .el { color: var(--muted); font-size: 11px; }
+.detail-head { display: flex; align-items: center; gap: 12px; margin: 8px 0 4px; }
+.detail-head img { width: 76px; height: 76px; border-radius: 50%; background: #0006; }
+.detail-head h2 { margin: 0; font-size: 22px; }

@@ -96,13 +96,9 @@ function decodeOutlineNormals(lod) {
     const l = Math.hypot(ox, oy, oz) || 1;
     ox /= l; oy /= l; oz /= l;
     // a smoothed normal pointing away from the surface would tear the outline into spikes
-    if (ox * nx + oy * ny + oz * nz < 0.25) { ox = nx; oy = ny; oz = nz; }
     out[k] = ox; out[k + 1] = oy; out[k + 2] = oz;
   }
-  // Sanity check: the decoded normals should mostly agree with the geometric ones.
-  let agree = 0;
-  for (let i = 0; i < n; i += 17) { const k = i * 3; if (out[k] * normals[k] + out[k + 1] * normals[k + 1] + out[k + 2] * normals[k + 2] > 0.2) agree++; }
-  return agree > (n / 17) * 0.6 ? out : null;
+  return out;
 }
 
 // Average normals of vertices sharing a position (fallback outline normals).
@@ -148,7 +144,7 @@ function buildSkinAttributes(lod, vcount, boneMap) {
 }
 
 // Split one LOD into a compact geometry per material section.
-function sectionGeometries(lod, skin, outlineNormals) {
+function sectionGeometries(lod, skin, packedNormals, smoothed) {
   const vcount = lod.positions.length / 3;
   const color = lod.colors[0]?.rgba;
   const out = [];
@@ -167,6 +163,11 @@ function sectionGeometries(lod, skin, outlineNormals) {
     const pos = new Float32Array(n * 3), nor = new Float32Array(n * 3), uv = new Float32Array(n * 2), oln = new Float32Array(n * 3);
     const col = new Uint8Array(n * 4), si = new Uint16Array(n * 4), sw = new Float32Array(n * 4);
     const uv0 = lod.uvs[0];
+    // Body/cloth sections pack smoothed outline normals in UV1; hair and face use UV1 for
+    // something else, which tears the outline into slabs and spikes. Use whichever agrees.
+    let agree = 0;
+    if (packedNormals) for (const v of verts) agree += packedNormals[v * 3] * smoothed[v * 3] + packedNormals[v * 3 + 1] * smoothed[v * 3 + 1] + packedNormals[v * 3 + 2] * smoothed[v * 3 + 2];
+    const outlineNormals = packedNormals && agree / verts.length > 0.85 ? packedNormals : smoothed;
     verts.forEach((v, j) => {
       for (let k = 0; k < 3; k++) {
         pos[j * 3 + k] = lod.positions[v * 3 + k];
@@ -297,8 +298,8 @@ export class Rig {
     const boneIndex = new Map(this.bones.map((b, i) => [b, i]));
     const boneMap = boneObjs.map((b) => boneIndex.get(b));
     const skin = buildSkinAttributes(lod, lod.positions.length / 3, boneMap);
-    const olNormals = decodeOutlineNormals(lod) ?? smoothNormals(lod.positions, lod.normals ?? new Float32Array(lod.positions.length));
-    const sections = sectionGeometries(lod, skin, olNormals);
+    const smoothed = smoothNormals(lod.positions, lod.normals ?? new Float32Array(lod.positions.length));
+    const sections = sectionGeometries(lod, skin, decodeOutlineNormals(lod), smoothed);
     onStatus?.('Cargando texturas…');
     const modelDir = path.split('/').slice(0, -1).join('/');
     const mats = await Promise.all(lod.materials.map((m) => loadMaterialSet(src, m, modelDir)));

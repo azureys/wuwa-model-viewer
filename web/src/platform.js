@@ -4,10 +4,13 @@ export const isAndroid = !!native;
 export const MODELS_BASE = isAndroid ? 'https://appassets.androidplatform.net/models' : './models';
 
 const listeners = { progress: [], done: [], file: [] };
+const batches = new Map();
 window.__wuwa = {
   importProgress: (pct, msg) => listeners.progress.forEach((f) => f(pct, msg)),
   importDone: (json) => { const r = JSON.parse(json); listeners.done.forEach((f) => f(r)); },
   fileSaved: (msg) => listeners.file.forEach((f) => f(msg)),
+  dlProgress: (token, done, total, bytes) => batches.get(token)?.progress?.(done, total, bytes),
+  dlDone: (token, failed) => { const b = batches.get(token); batches.delete(token); b?.resolve(JSON.parse(failed)); },
 };
 export const onImportProgress = (f) => listeners.progress.push(f);
 export const onImportDone = (f) => listeners.done.push(f);
@@ -51,3 +54,16 @@ export const store = {
   get(key, def) { try { const v = localStorage.getItem('wuwa.' + key); return v == null ? def : JSON.parse(v); } catch { return def; } },
   set(key, v) { try { localStorage.setItem('wuwa.' + key, JSON.stringify(v)); } catch { /* ignore */ } },
 };
+
+// ---- downloads from encore.moe (Android only: files go straight to the model folder)
+export const canDownload = isAndroid;
+export function newModelId(name) { return native.newModelId(name); }
+export function finalizeModel(id, name) { return native.finalizeModel(id, name); }
+let batchSeq = 0;
+export function downloadBatch(id, base, paths, progress) {
+  return new Promise((resolve) => {
+    const token = 'b' + (++batchSeq);
+    batches.set(token, { resolve, progress });
+    native.downloadBatch(id, base, JSON.stringify(paths), token);
+  });
+}

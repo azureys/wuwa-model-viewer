@@ -7,6 +7,7 @@ import { loadAnim, buildClip, sampleCurve, describeAnims, ribbonFor, ribbonTrack
 import { toonGlobals } from './toon.js';
 import { PoseTool, SpringBones, BODY_PARTS, FINGER_PARTS } from './pose.js';
 import * as platform from './platform.js';
+import { fetchRoster, fetchCharacter, downloadCharacter } from './encore.js';
 
 const $ = (s) => document.querySelector(s);
 function h(tag, attrs = {}, ...kids) {
@@ -761,6 +762,81 @@ function closeLibrary() { $('#library').hidden = true; }
 $('#btnLibrary').onclick = openLibrary;
 $('#btnCloseLibrary').onclick = closeLibrary;
 $('#btnImport').onclick = () => platform.importZip();
+$('#btnStore').onclick = () => openStore();
+
+// ---------------------------------------------------------------- encore.moe downloads
+let roster = null, storeView = 'list', storeFilter = '', downloading = false;
+async function openStore() {
+  if (!platform.canDownload) { toast('La descarga directa solo funciona en la app Android'); return; }
+  $('#store').hidden = false;
+  storeView = 'list';
+  renderStoreList();
+}
+function closeStore() { if (!downloading) $('#store').hidden = true; }
+$('#btnStoreClose').onclick = closeStore;
+$('#btnStoreBack').onclick = () => { if (downloading) return; if (storeView === 'detail') { storeView = 'list'; renderStoreList(); } else closeStore(); };
+async function renderStoreList() {
+  const body = $('#storeBody');
+  $('#storeTitle').textContent = 'Personajes';
+  if (!roster) {
+    body.replaceChildren(h('p', { class: 'hint' }, 'Cargando lista de encore.moe…'));
+    try { roster = await fetchRoster(); } catch (e) { body.replaceChildren(h('p', { class: 'hint' }, 'No se pudo conectar con encore.moe: ' + e.message), h('button', { class: 'btn', onclick: () => renderStoreList() }, 'Reintentar')); return; }
+  }
+  const grid = h('div', { class: 'roster' });
+  const fill = () => {
+    const f = storeFilter.trim().toLowerCase();
+    grid.replaceChildren(...roster.filter((r) => !f || r.name.toLowerCase().includes(f) || r.element.toLowerCase().includes(f)).map((r) =>
+      h('button', { class: 'q' + r.quality, onclick: () => renderStoreDetail(r) },
+        h('img', { src: r.icon, loading: 'lazy', alt: '' }), h('span', {}, r.name), h('span', { class: 'el' }, `${r.element}${r.weapon ? ' · ' + r.weapon : ''}`))));
+  };
+  const search = h('input', { type: 'search', placeholder: 'Buscar personaje o elemento…', value: storeFilter, oninput: (e) => { storeFilter = e.target.value; fill(); } });
+  fill();
+  body.replaceChildren(search, grid);
+}
+async function renderStoreDetail(r) {
+  storeView = 'detail';
+  const body = $('#storeBody');
+  $('#storeTitle').textContent = r.name;
+  body.replaceChildren(h('p', { class: 'hint' }, 'Cargando datos del personaje…'));
+  let ch;
+  try { ch = await fetchCharacter(r.id); } catch (e) { body.replaceChildren(h('p', { class: 'hint' }, 'Error: ' + e.message)); return; }
+  if (!ch.variants.length) { body.replaceChildren(h('p', { class: 'hint' }, 'Este personaje todavía no tiene modelo 3D en encore.moe.')); return; }
+  let variant = 0, weapon = null;
+  const weapons = ch.equips.filter((e) => e.kind === 'weapon');
+  const props = ch.equips.filter((e) => e.kind === 'prop');
+  const draw = () => {
+    const v = ch.variants[variant];
+    body.replaceChildren(
+      h('div', { class: 'detail-head' }, h('img', { src: r.icon, alt: '' }), h('div', {}, h('h2', {}, ch.name), h('div', { class: 'hint' }, `${r.element} · ${r.weapon}`))),
+      h('h3', {}, 'Modelo'),
+      chips(ch.variants.map((x, i) => [i, `${x.name}${x.kind === 'morph' ? ' (forma)' : ''}`]), variant, (i) => { variant = i; draw(); }),
+      h('p', { class: 'hint' }, `${v.anims.length} animaciones${v.parts.length ? ` · ${v.parts.length} pieza(s) extra` : ''} · ${props.length} objeto(s) de animación`),
+      h('h3', {}, 'Arma (opcional)'),
+      h('select', { class: 'full', onchange: (e) => { weapon = e.target.value === '' ? null : +e.target.value; } },
+        h('option', { value: '' }, 'Sin arma'), weapons.map((w) => h('option', { value: String(w.id), selected: w.id === weapon }, `${w.name}${w.anims.length ? ` (${w.anims.length} anim.)` : ''}`))),
+      h('p', { class: 'hint' }, 'La descarga suele ocupar entre 100 y 300 MB. Usa Wi-Fi si puedes. Después funciona sin conexión.'),
+      h('button', { class: 'primary', onclick: () => startDownload(ch, variant, weapon) }, '⬇ Descargar e importar'),
+    );
+  };
+  draw();
+}
+async function startDownload(ch, variant, weapon) {
+  downloading = true;
+  const body = $('#storeBody');
+  const bar = h('div', { class: 'bar' }, h('div'));
+  const label = h('span', {}, 'Preparando…');
+  body.replaceChildren(h('h3', {}, 'Descargando'), h('div', { id: 'importProgress' }, bar, label), h('p', { class: 'hint' }, 'No cierres la app hasta que termine.'));
+  try {
+    const res = await downloadCharacter(ch, variant, weapon, (pct, msg) => { bar.firstChild.style.width = pct + '%'; label.textContent = msg; });
+    downloading = false;
+    $('#store').hidden = true;
+    toast(`${res.name} descargado`);
+    openModel(res.id, res.name);
+  } catch (e) {
+    downloading = false;
+    body.replaceChildren(h('p', { class: 'hint' }, 'La descarga falló: ' + e.message), h('button', { class: 'btn', onclick: () => renderStoreDetail(roster.find((x) => x.id === ch.id)) }, 'Volver'));
+  }
+}
 platform.onImportProgress((pct, msg) => {
   const p = $('#importProgress'); p.hidden = false;
   p.querySelector('.bar div').style.width = `${pct}%`; p.querySelector('span').textContent = msg ?? `${pct}%`;
@@ -784,6 +860,7 @@ document.addEventListener('visibilitychange', () => { if (S.modelId) platform.st
 window.__dbg = { S, viewer, pose, springs, THREE, playAnim, renderTab, setCutMode };
 // Android back button: close the open layer first
 window.__wuwaBack = () => {
+  if (!$('#store').hidden) { $('#btnStoreBack').click(); return true; }
   if (!$('#library').hidden && S.rig) { closeLibrary(); return true; }
   if (S.cutMode) { setCutMode(false); renderTab(); return true; }
   if (S.tab) { S.tab = null; renderTab(); return true; }

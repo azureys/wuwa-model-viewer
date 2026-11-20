@@ -28,6 +28,11 @@ import org.json.JSONObject
 import java.io.File
 import java.io.FileInputStream
 import java.io.IOException
+import java.net.HttpURLConnection
+import java.net.URL
+import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicLong
 import java.util.zip.ZipFile
 import kotlin.concurrent.thread
 
@@ -233,6 +238,82 @@ class MainActivity : ComponentActivity() {
             val f = File(File(modelsDir, id), "meta.json")
             val meta = try { JSONObject(f.readText()) } catch (e: Exception) { JSONObject() }
             f.writeText(meta.put("name", name).toString())
+        }
+
+        /** Reserve a folder for a model downloaded from encore.moe. */
+        @JavascriptInterface
+        fun newModelId(name: String): String {
+            var id = name.replace(Regex("[^A-Za-z0-9._ -]"), "_").trim().ifEmpty { "modelo" }
+            if (File(modelsDir, id).exists()) id = "$id-${System.currentTimeMillis() / 1000}"
+            File(modelsDir, id).mkdirs()
+            return id
+        }
+
+        /** Download `paths` (relative to /Game/) from the encore.moe storage into models/<id>/. */
+        @JavascriptInterface
+        fun downloadBatch(id: String, base: String, pathsJson: String, token: String) {
+            val dir = File(modelsDir, id).canonicalFile
+            val arr = JSONArray(pathsJson)
+            val paths = List(arr.length()) { arr.getString(it) }
+            thread(name = "dl") {
+                val pool = Executors.newFixedThreadPool(5)
+                val done = AtomicInteger(0)
+                val bytes = AtomicLong(0)
+                val failed = java.util.Collections.synchronizedList(mutableListOf<String>())
+                for (p in paths) pool.execute {
+                    try {
+                        val out = File(dir, p).canonicalFile
+                        if (!out.path.startsWith(dir.path + File.separator)) throw IOException("ruta no válida")
+                        if (!out.exists()) {
+                            val url = URL(base + p.split('/').joinToString("/") { Uri.encode(it) })
+                            var ok = false
+                            var lastErr: Exception? = null
+                            for (attempt in 0 until 3) {
+                                try {
+                                    val c = url.openConnection() as HttpURLConnection
+                                    c.connectTimeout = 20000; c.readTimeout = 60000
+                                    c.setRequestProperty("User-Agent", "WuwaViewer/1.1")
+                                    if (c.responseCode != 200) { c.disconnect(); throw IOException("HTTP ${c.responseCode}") }
+                                    out.parentFile?.mkdirs()
+                                    val tmp = File(out.path + ".part")
+                                    c.inputStream.use { i -> tmp.outputStream().use { o -> bytes.addAndGet(i.copyTo(o, 1 shl 16)) } }
+                                    c.disconnect()
+                                    tmp.renameTo(out)
+                                    ok = true; break
+                                } catch (e: IOException) {
+                                    lastErr = e
+                                    if (e.message?.startsWith("HTTP 4") == true) break
+                                    Thread.sleep(800L * (attempt + 1))
+                                }
+                            }
+                            if (!ok) throw lastErr ?: IOException("error")
+                        }
+                    } catch (e: Exception) {
+                        failed.add(p)
+                    }
+                    val n = done.incrementAndGet()
+                    if (n % 3 == 0 || n == paths.size) runOnUiThread {
+                        web.evaluateJavascript("window.__wuwa && __wuwa.dlProgress(${JSONObject.quote(token)}, $n, ${paths.size}, ${bytes.get()})", null)
+                    }
+                }
+                pool.shutdown()
+                pool.awaitTermination(2, java.util.concurrent.TimeUnit.HOURS)
+                js("__wuwa.dlDone", token, JSONArray(failed.toList()).toString())
+            }
+        }
+
+        /** Write index.json / meta.json for a downloaded model. */
+        @JavascriptInterface
+        fun finalizeModel(id: String, name: String): String {
+            val dir = File(modelsDir, id)
+            val files = JSONArray()
+            var size = 0L
+            dir.walkTopDown().filter { it.isFile && !it.name.endsWith(".part") && it.name != "index.json" && it.name != "meta.json" }.forEach {
+                files.put(it.relativeTo(dir).path.replace(File.separatorChar, '/')); size += it.length()
+            }
+            File(dir, "index.json").writeText(JSONObject().put("files", files).toString())
+            File(dir, "meta.json").writeText(JSONObject().put("name", name).put("size", size).put("files", files.length()).put("date", System.currentTimeMillis()).put("source", "encore.moe").toString())
+            return id
         }
 
         @JavascriptInterface

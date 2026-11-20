@@ -217,7 +217,6 @@ void main() {
   gl_Position = projectionMatrix * mvPosition;
   vViewPos = -mvPosition.xyz;
   vNormalV = nV;
-  if (uOutlineOn < 0.5 || vcol.g < 0.01) gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
 }
 `;
 
@@ -233,8 +232,9 @@ varying float vHide;
 varying vec3 vNormalV;
 varying vec3 vViewPos;
 varying vec4 vCol;
+uniform float uOutlineOn;
 void main() {
-  if (vHide > 0.5) discard;
+  if (vHide > 0.5 || uOutlineOn < 0.5) discard;
   vec3 c = uUseMap > 0.5 ? texture2D(map, vUv).rgb * uColorTint : uColor;
   gl_FragColor = vec4(c * uExposure, 1.0);
   #include <tonemapping_fragment>
