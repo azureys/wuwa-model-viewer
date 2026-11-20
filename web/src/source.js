@@ -1,0 +1,84 @@
+// Access to the files of one imported model package (the unzipped encore.moe .zip).
+// The package is served at `${base}/...` and lists its files in `${base}/index.json`.
+
+export class PackageSource {
+  constructor(base, files) {
+    this.base = base.replace(/\/+$/, '');
+    this.files = files;
+    this.lower = new Map(files.map((f) => [f.toLowerCase(), f]));
+    this.byBase = new Map();
+    for (const f of files) {
+      const b = f.split('/').pop().toLowerCase();
+      if (!this.byBase.has(b)) this.byBase.set(b, []);
+      this.byBase.get(b).push(f);
+    }
+  }
+
+  static async open(base) {
+    const res = await fetch(`${base.replace(/\/+$/, '')}/index.json`);
+    if (!res.ok) throw new Error(`No se pudo leer el índice del modelo (${res.status})`);
+    const idx = await res.json();
+    return new PackageSource(base, idx.files ?? idx);
+  }
+
+  has(path) { return this.lower.has(path.toLowerCase()); }
+  resolve(path) { return this.lower.get(path.toLowerCase()) ?? null; }
+  // Find a file by exact path, or by file name preferring the given folder.
+  find(path, preferDir = '') {
+    const exact = this.resolve(path);
+    if (exact) return exact;
+    const cands = this.byBase.get(path.split('/').pop().toLowerCase());
+    if (!cands) return null;
+    return cands.find((c) => preferDir && c.toLowerCase().startsWith(preferDir.toLowerCase())) ?? cands[0];
+  }
+  url(path) { return `${this.base}/${path.split('/').map(encodeURIComponent).join('/')}`; }
+  async buffer(path) {
+    const res = await fetch(this.url(path));
+    if (!res.ok) throw new Error(`${res.status} ${path}`);
+    return res.arrayBuffer();
+  }
+  async json(path) { return JSON.parse(new TextDecoder().decode(await this.buffer(path))); }
+  async blob(path) {
+    const res = await fetch(this.url(path));
+    if (!res.ok) throw new Error(`${res.status} ${path}`);
+    return res.blob();
+  }
+
+  // Sort the package into the character, its extra parts, weapons and props, each with their animations.
+  catalog() {
+    const models = this.files.filter((f) => /\.uemodel$/i.test(f));
+    const anims = this.files.filter((f) => /\.ueanim$/i.test(f));
+    const dirOf = (f) => f.split('/').slice(0, -2).join('/'); // ".../<Asset>/Model/x.uemodel" → ".../<Asset>"
+    const groupOf = (f) => {
+      if (/\/Weapon\/Prop\//i.test(f)) return 'prop';
+      if (/\/Weapon\//i.test(f)) return 'weapon';
+      return 'character';
+    };
+    const entries = models.map((f) => ({ path: f, kind: groupOf(f), dir: dirOf(f), name: f.split('/').pop().replace(/\.uemodel$/i, '') }));
+    const chars = entries.filter((e) => e.kind === 'character');
+    // Character folder = the role folder holding CommonAnim etc. ("Role/FemaleMS/Katixiya")
+    const roleDir = (e) => e.dir.split('/').slice(0, -1).join('/');
+    const main = chars.find((e) => !/_Tail\d|Part/i.test(e.name)) ?? chars[0] ?? null;
+    const parts = chars.filter((e) => e !== main && main && roleDir(e) === roleDir(main));
+    const otherChars = chars.filter((e) => e !== main && !parts.includes(e));
+
+    const weapons = [];
+    for (const e of entries.filter((x) => x.kind === 'weapon')) {
+      if (/scabbard/i.test(e.name)) continue;
+      const key = e.dir.split('/').slice(0, -1).join('/');
+      const scab = entries.find((x) => x.kind === 'weapon' && /scabbard/i.test(x.name) && x.dir.split('/').slice(0, -1).join('/') === key);
+      weapons.push({ ...e, scabbard: scab ?? null, anims: [] });
+    }
+    const props = entries.filter((x) => x.kind === 'prop').map((e) => ({ ...e, anims: [] }));
+
+    const charAnims = [];
+    for (const a of anims) {
+      const p = props.find((x) => a.startsWith(x.dir + '/'));
+      if (p) { p.anims.push(a); continue; }
+      const w = weapons.find((x) => a.startsWith(x.dir.split('/').slice(0, -1).join('/') + '/'));
+      if (w) { w.anims.push(a); continue; }
+      charAnims.push(a);
+    }
+    return { main, parts, otherChars, weapons, props, charAnims, roleDir: main ? roleDir(main) : '' };
+  }
+}

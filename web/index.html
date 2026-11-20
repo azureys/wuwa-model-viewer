@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<title>Visor WuWa</title>
+<link rel="stylesheet" href="styles.css">
+<script type="importmap">
+{ "imports": { "three": "./vendor/three.module.js", "three/addons/": "./vendor/addons/" } }
+</script>
+</head>
+<body>
+<div id="app">
+  <canvas id="view"></canvas>
+
+  <header id="topbar">
+    <button class="icon" id="btnLibrary" title="Biblioteca">☰</button>
+    <div id="title">Visor 3D</div>
+    <button class="icon" id="btnResetView" title="Reiniciar cámara">⟲</button>
+    <button class="icon" id="btnShot" title="Captura">📷</button>
+    <button class="icon" id="btnHideUi" title="Ocultar interfaz">👁</button>
+  </header>
+
+  <div id="status" hidden><div class="spinner"></div><span id="statusText"></span></div>
+  <div id="toast" hidden></div>
+  <div id="pickHint" hidden></div>
+
+  <div id="player" hidden>
+    <button class="icon" id="btnPlay">⏸</button>
+    <input type="range" id="timeline" min="0" max="1000" value="0" step="1">
+    <span id="frameLabel">0/0</span>
+    <button class="chip small" id="btnLoop" aria-pressed="true">🔁</button>
+    <select id="speed">
+      <option value="0.1">0.1×</option><option value="0.25">0.25×</option><option value="0.5">0.5×</option>
+      <option value="1" selected>1×</option><option value="1.5">1.5×</option><option value="2">2×</option>
+    </select>
+  </div>
+
+  <section id="sheet" hidden>
+    <div class="sheet-grip"></div>
+    <div id="sheetBody"></div>
+  </section>
+
+  <nav id="tabs">
+    <button data-tab="anim"><span>🎬</span>Animación</button>
+    <button data-tab="pose"><span>🦴</span>Pose</button>
+    <button data-tab="parts"><span>👗</span>Ropa</button>
+    <button data-tab="equip"><span>⚔️</span>Equipo</button>
+    <button data-tab="face"><span>🙂</span>Cara</button>
+    <button data-tab="lights"><span>💡</span>Luces</button>
+    <button data-tab="scene"><span>🖼️</span>Escena</button>
+    <button data-tab="look"><span>🎨</span>Aspecto</button>
+  </nav>
+
+  <div id="library" hidden>
+    <div class="lib-head">
+      <h1>Biblioteca</h1>
+      <button class="icon" id="btnCloseLibrary">✕</button>
+    </div>
+    <p class="hint">Importa el <b>.zip</b> que descargas desde el visor 3D de encore.moe (botón «Download .zip»). Todo se guarda en el móvil y funciona sin conexión.</p>
+    <button class="primary" id="btnImport">＋ Importar .zip</button>
+    <div id="importProgress" hidden><div class="bar"><div></div></div><span></span></div>
+    <ul id="modelList"></ul>
+  </div>
+</div>
+<input type="file" id="filePicker" hidden>
+<script type="module" src="src/app.js"></script>
+</body>
+</html>
