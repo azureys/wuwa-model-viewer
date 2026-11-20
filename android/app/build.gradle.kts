@@ -29,7 +29,7 @@ android {
 }
 
 // Copy the web viewer (../../web) into the APK assets under web/
-val copyWeb by tasks.registering(Copy::class) {
+val copyWeb by tasks.registering(Sync::class) {
     from(rootProject.file("../web")) { exclude("models/**") }
     into(layout.buildDirectory.dir("generated/webassets/web"))
 }
