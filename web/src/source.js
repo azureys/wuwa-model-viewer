@@ -2,9 +2,11 @@
 // The package is served at `${base}/...` and lists its files in `${base}/index.json`.
 
 export class PackageSource {
-  constructor(base, files) {
+  // reader(path) → Blob|undefined: alternative storage (IndexedDB on iPhone/browser) instead of fetch()
+  constructor(base, files, reader = null) {
     this.base = base.replace(/\/+$/, '');
     this.files = files;
+    this.reader = reader;
     this.lower = new Map(files.map((f) => [f.toLowerCase(), f]));
     this.byBase = new Map();
     for (const f of files) {
@@ -33,12 +35,18 @@ export class PackageSource {
   }
   url(path) { return `${this.base}/${path.split('/').map(encodeURIComponent).join('/')}`; }
   async buffer(path) {
+    if (this.reader) return (await this.blob(path)).arrayBuffer();
     const res = await fetch(this.url(path));
     if (!res.ok) throw new Error(`${res.status} ${path}`);
     return res.arrayBuffer();
   }
   async json(path) { return JSON.parse(new TextDecoder().decode(await this.buffer(path))); }
   async blob(path) {
+    if (this.reader) {
+      const b = await this.reader(path);
+      if (!b) throw new Error(`404 ${path}`);
+      return b;
+    }
     const res = await fetch(this.url(path));
     if (!res.ok) throw new Error(`${res.status} ${path}`);
     return res.blob();

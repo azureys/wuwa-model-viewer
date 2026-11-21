@@ -1,7 +1,6 @@
 // Main application: model library, viewer state and all the panels.
 import * as THREE from 'three';
 import { Viewer, LIGHT_PRESETS, LIGHT_TYPES, BG_PRESETS, newLight } from './viewer.js';
-import { PackageSource } from './source.js';
 import { Rig, textureSettings, clearTextureCache, computeIslands, setIslandHidden } from './character.js';
 import { loadAnim, buildClip, sampleCurve, describeAnims, ribbonFor, ribbonTrackFilter, removeTracksFor } from './animation.js';
 import { toonGlobals } from './toon.js';
@@ -69,7 +68,7 @@ viewer.headPosition = () => S.rig?.findBone('Bip001Head')?.getWorldPosition(new 
 viewer.setLights(platform.store.get('lights', null)?.map((l) => newLight(l.type, l)) ?? LIGHT_PRESETS['Estudio']());
 viewer.setBackground(platform.store.get('bg', BG_PRESETS[0]));
 viewer.setFloor(platform.store.get('floor', 'shadow'));
-const look = Object.assign({ outline: 1, outlineOn: true, rim: 0.6, soft: 1, selfShadow: false, spec: 1, sat: 1, exposure: 1, renderScale: Math.min(devicePixelRatio, platform.isAndroid ? 1.75 : 2), texSize: platform.isAndroid ? 1024 : 2048, fov: 30 }, platform.store.get('look', {}));
+const look = Object.assign({ outline: 1, outlineOn: true, rim: 0.6, soft: 1, selfShadow: false, spec: 1, sat: 1, exposure: 1, renderScale: Math.min(devicePixelRatio, platform.isMobile ? 1.75 : 2), texSize: platform.isMobile ? 1024 : 2048, fov: 30 }, platform.store.get('look', {}));
 function applyLook() {
   toonGlobals.uOutlineScale.value = look.outline; toonGlobals.uOutlineOn.value = look.outlineOn ? 1 : 0;
   toonGlobals.uRimStrength.value = look.rim; toonGlobals.uShadowSoft.value = look.soft;
@@ -92,7 +91,7 @@ async function openModel(id, name) {
   $('#title').textContent = name;
   try {
     status('Leyendo paquete…');
-    const pkg = await PackageSource.open(`${platform.MODELS_BASE}/${encodeURIComponent(id)}`);
+    const pkg = await platform.openPackage(id);
     S.pkg = pkg; S.cat = pkg.catalog();
     if (!S.cat.main) throw new Error('El .zip no contiene ningún personaje (.uemodel)');
     const rig = new Rig(name);
@@ -772,7 +771,6 @@ function shot(opts) {
   const url = viewer.screenshot(opts);
   pose.gizmoHelper.visible = helperVis; pose.markers.visible = pose.active;
   platform.saveFile(`${(S.modelName || 'captura').replace(/[\\/:*?"<>|]/g, '_')}-${Date.now()}.png`, url, 'image/png');
-  if (!platform.isAndroid) toast('Captura guardada');
 }
 $('#btnShot').onclick = () => shot({ scale: 1.5 });
 $('#btnResetView').onclick = () => viewer.viewPreset('front');
@@ -810,8 +808,8 @@ async function openLibrary() {
         h('div', { class: 'name' }, m.name),
         h('div', { class: 'sub' }, `${m.files ?? '?'} archivos · ${((m.size ?? 0) / 1048576).toFixed(0)} MB`)),
       h('button', { class: 'btn', onclick: () => openModel(m.id, m.name) }, 'Abrir'),
-      platform.isAndroid ? h('button', { class: 'btn', onclick: () => { const n = prompt('Nuevo nombre', m.name); if (n) { platform.renameModel(m.id, n); openLibrary(); } } }, '✎') : null,
-      platform.isAndroid ? h('button', { class: 'btn danger', onclick: () => { if (confirm(`¿Borrar ${m.name}?`)) { platform.deleteModel(m.id); platform.store.set('model.' + m.id, null); openLibrary(); } } }, '🗑') : null));
+      platform.canManage ? h('button', { class: 'btn', onclick: async () => { const n = prompt('Nuevo nombre', m.name); if (n) { await platform.renameModel(m.id, n); openLibrary(); } } }, '✎') : null,
+      platform.canManage ? h('button', { class: 'btn danger', onclick: async () => { if (confirm(`¿Borrar ${m.name}?`)) { await platform.deleteModel(m.id); platform.store.set('model.' + m.id, null); openLibrary(); } } }, '🗑') : null));
   }
 }
 function closeLibrary() { $('#library').hidden = true; }
@@ -823,7 +821,11 @@ $('#btnStore').onclick = () => openStore();
 // ---------------------------------------------------------------- encore.moe downloads
 let roster = null, storeView = 'list', storeFilter = '', downloading = false;
 async function openStore() {
-  if (!platform.canDownload) { toast('La descarga directa solo funciona en la app Android'); return; }
+  if (!platform.canDownload) {
+    // encore.moe only lets its own site download the model files, so on iPhone the .zip goes through Safari
+    window.open('https://encore.moe/', '_blank', 'noopener');
+    return;
+  }
   $('#store').hidden = false;
   storeView = 'list';
   renderStoreList();
@@ -906,6 +908,17 @@ platform.onImportDone((r) => {
 platform.onFileSaved((msg) => toast(msg));
 
 // start
+if (!platform.canDownload) {
+  $('#btnStore').textContent = '🌐 Abrir encore.moe';
+  $('#libHint').replaceChildren(...(platform.isIOS ? [
+    'En encore.moe abre un personaje, entra en su visor 3D y pulsa ', h('b', {}, 'Download .zip'), ' (se guarda en Archivos › Descargas). Luego vuelve aquí y pulsa ', h('b', {}, 'Importar .zip'), '. Todo queda guardado en el iPhone y funciona sin conexión.',
+  ] : [
+    'Descarga un ', h('b', {}, '.zip'), ' desde el visor 3D de encore.moe («Download .zip») e impórtalo aquí. Se guarda en este navegador y funciona sin conexión.',
+  ]));
+  if (platform.isIOS && !platform.isStandalone) {
+    $('#libHint').after(h('p', { class: 'hint install' }, '📲 Para instalarla: pulsa ', h('b', {}, 'Compartir'), ' (el cuadrado con la flecha) y luego ', h('b', {}, 'Añadir a pantalla de inicio'), '. Abre siempre la app desde ese icono: así los modelos no se borran.'));
+  }
+}
 (async () => {
   const list = await platform.listModels();
   const last = platform.store.get('lastModel', null);
@@ -924,3 +937,18 @@ window.__wuwaBack = () => {
   if (document.body.classList.contains('ui-hidden')) { document.body.classList.remove('ui-hidden'); return true; }
   return false;
 };
+
+// iPhone: no page zoom from pinch (the canvas handles its own gestures)
+if (platform.isIOS) {
+  for (const ev of ['gesturestart', 'gesturechange']) document.addEventListener(ev, (e) => e.preventDefault(), { passive: false });
+}
+// offline app shell for the browser / iPhone version
+if (!platform.isAndroid && 'serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) {
+  const hadController = !!navigator.serviceWorker.controller; // first install is silent
+  navigator.serviceWorker.register('./sw.js').then((reg) => {
+    reg.addEventListener('updatefound', () => {
+      const w = reg.installing;
+      w?.addEventListener('statechange', () => { if (w.state === 'activated' && hadController) toast('Versión nueva instalada: se usará la próxima vez que abras la app', 5000); });
+    });
+  }).catch((e) => console.warn('Service worker', e));
+}
