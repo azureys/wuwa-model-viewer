@@ -4,6 +4,14 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
 <title>Visor WuWa</title>
+<meta name="theme-color" content="#0e1016">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Visor WuWa">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon-192.png" type="image/png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
 <link rel="stylesheet" href="styles.css">
 <script type="importmap">
 { "imports": { "three": "./vendor/three.module.js", "three/addons/": "./vendor/addons/" } }
@@ -57,7 +65,7 @@
       <h1>Biblioteca</h1>
       <button class="icon" id="btnCloseLibrary">✕</button>
     </div>
-    <p class="hint">Descarga personajes directamente de encore.moe o importa un <b>.zip</b> bajado de su visor 3D («Download .zip»). Todo se guarda en el móvil y funciona sin conexión.</p>
+    <p class="hint" id="libHint">Descarga personajes directamente de encore.moe o importa un <b>.zip</b> bajado de su visor 3D («Download .zip»). Todo se guarda en el móvil y funciona sin conexión.</p>
     <button class="primary" id="btnStore">⬇ Descargar de encore.moe</button>
     <button class="btn wide" id="btnImport">＋ Importar .zip del móvil</button>
     <div id="importProgress" hidden><div class="bar"><div></div></div><span></span></div>
