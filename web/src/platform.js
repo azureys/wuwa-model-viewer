@@ -4,6 +4,8 @@ import * as webstore from './webstore.js';
 import { PackageSource } from './source.js';
 export const isAndroid = !!native;
 export const isIOS = /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+// Safari's image decoder premultiplies alpha (all iPhone browsers use it); ?jsdecode forces the JS PNG decoder for testing
+export const isSafari = isIOS || (/Safari\//.test(navigator.userAgent) && !/Chrome|Chromium|Android|Edg\//.test(navigator.userAgent)) || new URLSearchParams(location.search).has('jsdecode');
 export const isMobile = isAndroid || isIOS || /Android|Mobi/.test(navigator.userAgent);
 // installed to the home screen (iOS) or running as an installed PWA
 export const isStandalone = navigator.standalone === true || matchMedia('(display-mode: standalone)').matches;

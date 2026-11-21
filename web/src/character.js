@@ -2,9 +2,11 @@
 import * as THREE from 'three';
 import { parseUEModel, parseMaterialJson, gamePath } from './ueformat.js';
 import { makeToonMaterial, makeOutlineMaterial } from './toon.js';
+import { decodePng, shrinkToFit } from './png.js';
 
 const textureCache = new Map();
-export const textureSettings = { maxSize: 2048 };
+// jsDecode: decode PNGs in JS (Safari/iPhone, whose image decoder premultiplies alpha)
+export const textureSettings = { maxSize: 2048, jsDecode: false };
 
 const WHITE = (() => { const t = new THREE.DataTexture(new Uint8Array([255, 255, 255, 255]), 1, 1); t.needsUpdate = true; return t; })();
 
@@ -14,6 +16,22 @@ export async function loadTexture(src, path, srgb = true) {
   const p = (async () => {
     try {
       const blob = await src.blob(path);
+      if (textureSettings.jsDecode) {
+        const img = await decodePng(await blob.arrayBuffer());
+        if (img) {
+          const { width, height, data } = shrinkToFit(img, textureSettings.maxSize);
+          const tex = new THREE.DataTexture(data, width, height, THREE.RGBAFormat, THREE.UnsignedByteType);
+          tex.flipY = false;
+          tex.colorSpace = srgb ? THREE.SRGBColorSpace : THREE.NoColorSpace;
+          tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+          tex.magFilter = THREE.LinearFilter;
+          tex.minFilter = THREE.LinearMipmapLinearFilter;
+          tex.generateMipmaps = true;
+          tex.anisotropy = 4;
+          tex.needsUpdate = true;
+          return tex;
+        }
+      }
       let bmp = await createImageBitmap(blob, { premultiplyAlpha: 'none', colorSpaceConversion: 'none' });
       const max = textureSettings.maxSize;
       if (bmp.width > max || bmp.height > max) {

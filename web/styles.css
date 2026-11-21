@@ -144,3 +144,7 @@ body { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none
 input, textarea { -webkit-user-select: text; user-select: text; }
 .hint.install { border: 1px solid var(--accent); border-radius: 10px; padding: 8px 10px; }
 @supports (-webkit-touch-callout: none) { input[type=search], input[type=text], select, textarea { font-size: 16px; } }
+/* iPhone home-screen app: fill the whole screen, also under the status bar and home indicator
+   (iOS reports a viewport shorter than the screen with the translucent status bar) */
+html.ios-full, html.ios-full body { height: var(--app-h); }
+html.ios-full #app, html.ios-full #store { height: var(--app-h); bottom: auto; }
