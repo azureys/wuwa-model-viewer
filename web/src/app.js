@@ -75,6 +75,7 @@ function applyLook() {
   toonGlobals.uSelfShadow.value = look.selfShadow ? 1 : 0; toonGlobals.uSpecStrength.value = look.spec;
   toonGlobals.uSaturation.value = look.sat; toonGlobals.uExposure.value = look.exposure;
   textureSettings.maxSize = look.texSize;
+  textureSettings.jsDecode = platform.isSafari;
   viewer.setFov(look.fov);
   platform.store.set('look', look);
 }
@@ -938,6 +939,19 @@ window.__wuwaBack = () => {
   return false;
 };
 
+// iPhone home-screen app: size the layout to the real screen
+if (platform.isIOS && platform.isStandalone) {
+  const fit = () => {
+    const land = matchMedia('(orientation: landscape)').matches;
+    const H = land ? Math.min(screen.width, screen.height) : Math.max(screen.width, screen.height);
+    document.documentElement.classList.add('ios-full');
+    document.documentElement.style.setProperty('--app-h', H + 'px');
+    viewer.resize();
+  };
+  fit();
+  window.addEventListener('resize', fit);
+  window.addEventListener('orientationchange', () => setTimeout(fit, 300));
+}
 // iPhone: no page zoom from pinch (the canvas handles its own gestures)
 if (platform.isIOS) {
   for (const ev of ['gesturestart', 'gesturechange']) document.addEventListener(ev, (e) => e.preventDefault(), { passive: false });
