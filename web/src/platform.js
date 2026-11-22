@@ -88,7 +88,7 @@ export function pickFile(accept) {
   return new Promise((resolve) => {
     const input = document.getElementById('filePicker');
     input.value = '';
-    input.accept = accept;
+    if (accept) input.accept = accept; else input.removeAttribute('accept');
     input.onchange = () => resolve(input.files?.[0] ?? null);
     input.oncancel = () => resolve(null);
     input.click();
