@@ -758,7 +758,10 @@ function renderSceneTab(body) {
     body.append(slider('Volumen', { min: 0, max: 1, step: 0.01, value: music.volume, onInput: (v) => music.setVolume(v), fmt: (v) => `${Math.round(v * 100)}%` }));
   } else body.append(h('p', { class: 'hint' }, 'Elige un archivo de audio del móvil (por ejemplo el tema del menú de personajes). Sonará en bucle mientras usas el visor.'));
   body.append(h('div', { class: 'grid3' },
-    h('button', { class: 'btn', onclick: async () => { const f = await platform.pickFile('audio/*'); if (!f) return; await music.load(f); toast('Música: ' + music.name); renderTab(); } }, music.name ? '🔄 Cambiar' : '🎵 Elegir audio'),
+    h('button', { class: 'btn', onclick: async () => { // iOS greys out audio files in Files when the picker filters by audio type: pick any file and check it here
+      const f = await platform.pickFile(platform.isIOS ? '' : 'audio/*'); if (!f) return;
+      if (!/^audio\//.test(f.type) && !/\.(mp3|m4a|aac|wav|ogg|oga|opus|flac|aif|aiff|caf|webm)$/i.test(f.name)) { toast('Ese archivo no es de audio'); return; }
+      await music.load(f); toast('Música: ' + music.name); renderTab(); } }, music.name ? '🔄 Cambiar' : '🎵 Elegir audio'),
     music.name ? h('button', { class: 'btn', onclick: async () => { await music.remove(); renderTab(); } }, '🗑 Quitar') : null));
   body.append(h('h3', {}, 'Captura'));
   body.append(h('div', { class: 'grid3' },
