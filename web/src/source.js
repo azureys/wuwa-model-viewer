@@ -17,7 +17,7 @@ export class PackageSource {
   }
 
   static async open(base) {
-    const res = await fetch(`${base.replace(/\/+$/, '')}/index.json`);
+    const res = await fetch(`${base.replace(/\/+$/, '')}/index.json`, { cache: 'no-store' });
     if (!res.ok) throw new Error(`Could not read the model index (${res.status})`);
     const idx = await res.json();
     return new PackageSource(base, idx.files ?? idx);

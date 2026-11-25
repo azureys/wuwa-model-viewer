@@ -7,7 +7,7 @@ import { toonGlobals } from './toon.js';
 import { PoseTool, SpringBones, BODY_PARTS, FINGER_PARTS } from './pose.js';
 import * as platform from './platform.js';
 import { initMusic } from './music.js';
-import { fetchRoster, fetchCharacter, downloadCharacter } from './encore.js';
+import { fetchRoster, fetchCharacter, downloadCharacter, downloadWeapon } from './encore.js';
 import { icon, hydrateIcons } from './icons.js';
 import { SCENES, sceneThumb } from './backgrounds.js';
 
@@ -241,28 +241,81 @@ async function loadExtra(x) {
 }
 
 // ---- Weapon picker (top bar, next to the character name)
+// Lists the weapons in the package plus, when the character is known, every weapon of its type from
+// encore.moe (cached for offline use). Picking one that isn't on the device downloads it into the model.
 const WEAPON_TYPES = { Sword: 'Sword', Knife: 'Broadblade', Gun: 'Pistols', Knuckles: 'Gauntlets', Device: 'Rectifier' };
-const weaponLabel = (w) => { // Weapon/Knuckles/R5Knuckles504 → "Gauntlets 504"
-  const num = /(\d+)$/.exec(w.entry.name)?.[1];
-  return num ? `${WEAPON_TYPES[w.entry.type] ?? w.entry.type} ${num}` : w.entry.name;
-};
+const weaponFolder = (url) => /\/Weapon\/[^/]+\/([^/]+)\//.exec(url)?.[1] ?? null; // ".../Weapon/Knuckles/R5Knuckles504/..." → "R5Knuckles504"
+let weaponChoices = []; // [{ label, extra?, remote? }]
+function weaponLabel(x) { // fallback when encore.moe's list isn't available: "Gauntlets 504"
+  const num = /(\d+)$/.exec(x.entry.name)?.[1];
+  return num ? `${WEAPON_TYPES[x.entry.type] ?? x.entry.type} ${num}` : x.entry.name;
+}
 function showWeaponName() {
-  $('#weaponName').textContent = S.weapon ? weaponLabel(S.weapon) : 'No weapon';
+  const c = weaponChoices.find((w) => w.extra && w.extra === S.weapon);
+  $('#weaponName').textContent = c ? c.label : 'No weapon';
   $('#weaponPill').classList.toggle('off', !S.weapon);
 }
-function setupWeaponPicker() {
-  const weapons = S.extras.filter((x) => x.kind === 'weapon');
-  const saved = platform.store.get(prefsKey(), null)?.weapon;
-  S.weapon = saved === null ? null : weapons.find((w) => w.entry.name === saved) ?? weapons[0] ?? null;
-  $('#weaponPill').hidden = !weapons.length;
-  $('#weaponSelect').replaceChildren(h('option', { value: '' }, 'No weapon'),
-    ...weapons.map((w, i) => h('option', { value: String(i), selected: w === S.weapon }, weaponLabel(w))));
+function fillWeaponPicker() {
+  const local = S.extras.filter((x) => x.kind === 'weapon');
+  const remote = platform.store.get('weapons.' + libInfo[S.modelId]?.charId, null) ?? [];
+  const names = new Map(remote.map((w) => [weaponFolder(w.model), w.name]));
+  weaponChoices = [
+    ...local.map((x) => ({ label: names.get(x.entry.name) ?? weaponLabel(x), extra: x })),
+    ...(platform.canDownload ? remote.filter((w) => !local.some((x) => x.entry.name === weaponFolder(w.model))).map((w) => ({ label: w.name, remote: w })) : []),
+  ];
+  $('#weaponPill').hidden = !weaponChoices.length;
+  const opt = (c, i) => h('option', { value: String(i), selected: !!c.extra && c.extra === S.weapon }, c.label);
+  const groups = [h('option', { value: '' }, 'No weapon')];
+  if (weaponChoices.some((c) => c.extra)) groups.push(h('optgroup', { label: 'On this device' }, weaponChoices.map((c, i) => c.extra ? opt(c, i) : null)));
+  if (weaponChoices.some((c) => c.remote)) groups.push(h('optgroup', { label: 'Download (encore.moe)' }, weaponChoices.map((c, i) => c.remote ? opt(c, i) : null)));
+  $('#weaponSelect').replaceChildren(...groups);
+  $('#weaponSelect').value = String(weaponChoices.findIndex((c) => c.extra && c.extra === S.weapon));
+  if (!S.weapon) $('#weaponSelect').value = '';
   showWeaponName();
 }
+function setupWeaponPicker() {
+  const local = S.extras.filter((x) => x.kind === 'weapon');
+  const saved = platform.store.get(prefsKey(), null)?.weapon;
+  S.weapon = saved === null ? null : local.find((w) => w.entry.name === saved) ?? local[0] ?? null;
+  fillWeaponPicker();
+  refreshWeaponList(S.modelId);
+}
+// The character's weapon type list from encore.moe, refreshed in the background when online.
+async function refreshWeaponList(modelId) {
+  const charId = libInfo[modelId]?.charId;
+  if (!charId || !platform.canDownload) return;
+  try {
+    const ch = await fetchCharacter(charId);
+    const list = ch.equips.filter((e) => e.kind === 'weapon').map(({ id, name, model, parts, anims }) => ({ id, name, model, parts, anims }));
+    platform.store.set('weapons.' + charId, list);
+    if (S.modelId === modelId) fillWeaponPicker();
+  } catch { /* offline: keep the cached list */ }
+}
+async function addWeaponExtra(w) {
+  const modelId = S.modelId;
+  const prev = S.weapon;
+  try {
+    status(`Downloading ${w.name}…`);
+    await downloadWeapon(modelId, w, (pct) => status(`Downloading ${w.name}… ${pct}%`));
+    if (S.modelId !== modelId) return null;
+    const pkg = await platform.openPackage(modelId);
+    S.pkg = pkg; S.cat = pkg.catalog();
+    const entry = S.cat.weapons.find((x) => x.name === weaponFolder(w.model));
+    if (!entry) throw new Error('the weapon files are missing');
+    const x = { kind: 'weapon', entry, pieces: entry.pieces.map((p, i) => ({ ...p, bone: weaponBone(entry, i) })), visible: false, loaded: false };
+    S.extras.push(x);
+    toast(`${w.name} downloaded`);
+    return x;
+  } catch (e) {
+    toast('Could not download the weapon: ' + e.message, 5000);
+    S.weapon = prev;
+    return null;
+  } finally { status(null); }
+}
 $('#weaponSelect').onchange = async (e) => {
-  const weapons = S.extras.filter((x) => x.kind === 'weapon');
-  S.weapon = weapons[+e.target.value] ?? null;
-  showWeaponName();
+  const c = weaponChoices[+e.target.value];
+  S.weapon = c?.extra ?? (c?.remote ? await addWeaponExtra(c.remote) : null) ?? (c?.remote ? S.weapon : null);
+  fillWeaponPicker();
   saveModelPrefs();
   await syncExtras();
   setTime(S.time);

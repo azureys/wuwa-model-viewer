@@ -36,7 +36,7 @@ export async function downloadCharacter(ch, variantIndex, weaponId, onProgress) 
   const title = ch.variants.length > 1 ? `${ch.name} · ${v.name}` : ch.name;
   const id = await platform.newModelId(title);
   try {
-    await fetchAll(id, v, equips, onProgress);
+    await fetchAll(id, [v.model, ...v.parts, ...equips.flatMap((e) => [e.model, ...e.parts])], [...v.anims, ...equips.flatMap((e) => e.anims)], onProgress);
     await platform.finalizeModel(id, title);
   } catch (e) {
     await platform.abortDownload(id);
@@ -45,7 +45,14 @@ export async function downloadCharacter(ch, variantIndex, weaponId, onProgress) 
   return { id, name: title };
 }
 
-async function fetchAll(id, v, equips, onProgress) {
+// Adds one weapon (all its pieces, materials, textures, animations) to a model already in the library.
+export async function downloadWeapon(id, weapon, onProgress) {
+  await platform.beginUpdate(id);
+  try { await fetchAll(id, [weapon.model, ...weapon.parts], weapon.anims, onProgress); }
+  finally { await platform.endUpdate(id); }
+}
+
+async function fetchAll(id, modelUrls, animUrls, onProgress) {
   let stage = '', bytesBefore = 0;
   const mb = (b) => (b / 1048576).toFixed(0);
   const batch = async (label, paths, weight0, weight1) => {
@@ -62,10 +69,10 @@ async function fetchAll(id, v, equips, onProgress) {
   };
   const read = (p) => platform.readDownloaded(id, p);
 
-  const models = [v.model, ...v.parts, ...equips.flatMap((e) => [e.model, ...e.parts])].map(rel);
-  const anims = [...v.anims, ...equips.flatMap((e) => e.anims)].map(rel);
+  const models = modelUrls.map(rel);
+  const anims = animUrls.map(rel);
   const failedModels = await batch('Models', models, 0, 15);
-  if (failedModels.includes(rel(v.model))) throw new Error('could not download the character model');
+  if (failedModels.includes(models[0])) throw new Error('could not download ' + models[0].split('/').pop());
   // material tables referenced by each model
   const matJobs = [];
   for (const m of models) {

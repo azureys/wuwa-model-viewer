@@ -52,9 +52,10 @@ export function buildClip(rig, anim, { inPlace = false, name, filter = null } = 
     let target = rig.morphIndex.has(c.name) ? c.name : null;
     if (!target && c.name.startsWith('Mor_') && rig.morphIndex.has(c.name.slice(4))) target = c.name.slice(4);
     if (!target || !c.keys.length) continue;
-    // Morph weights live in 0..1. Some characters also carry pose-driver curves named like their
-    // shoulder corrective morphs (Iuno's L_F, L_P… go up to ~6), which would blow the shoulder up.
-    curves.push({ morph: target, times: c.keys.map((k) => k.frame / fps), values: c.keys.map((k) => Math.min(1, Math.max(0, k.value))) });
+    // Morph weights live in 0..1, but the "Mor_" corrective curves (shoulders, chest…) are authored in
+    // percent (0..100): Iuno's shoulder sat at weight ~6 instead of 0.06 and blew up.
+    const scale = c.name.startsWith('Mor_') ? 0.01 : 1;
+    curves.push({ morph: target, times: c.keys.map((k) => k.frame / fps), values: c.keys.map((k) => Math.min(1, Math.max(0, k.value * scale))) });
   }
   const clip = new THREE.AnimationClip(name ?? anim.name, dur, tracks);
   clip.userData = { curves, additive: anim.additive, fps, frames: anim.numFrames };
