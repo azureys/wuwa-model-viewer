@@ -28,6 +28,15 @@ export async function listModels() {
 }
 async function getMeta(id) { const d = await db(); return req(d.transaction(MODELS).objectStore(MODELS).get(id)); }
 export async function getFileList(id) { return (await getMeta(id))?.list ?? null; }
+export async function getModelMeta(id) { return getMeta(id); }
+// Files added to an existing model (a weapon downloaded later)
+export async function updateFileList(id, list, size) {
+  const m = await getMeta(id); if (!m) return;
+  const d = await db();
+  const t = d.transaction(MODELS, 'readwrite');
+  t.objectStore(MODELS).put({ ...m, list, files: list.length, size });
+  await done(t);
+}
 export async function readFile(id, path) {
   const d = await db();
   return req(d.transaction(FILES).objectStore(FILES).get(fileKey(id, path)));

@@ -145,6 +145,17 @@ export async function finalizeModel(id, name) {
   const st = webDl.get(id); webDl.delete(id);
   return webstore.finalizeDownload(id, name, [...st.list], st.size);
 }
+// Add files to a model that is already in the library (e.g. a weapon picked in the viewer).
+export async function beginUpdate(id) {
+  if (isAndroid) return;
+  const m = await webstore.getModelMeta(id);
+  webDl.set(id, { list: new Set(m?.list ?? []), size: m?.size ?? 0 });
+}
+export async function endUpdate(id) {
+  if (isAndroid) { native.deleteFiles(id, '[]'); return; } // rebuilds index.json / meta.json
+  const st = webDl.get(id); webDl.delete(id);
+  if (st) await webstore.updateFileList(id, [...st.list], st.size);
+}
 export async function abortDownload(id) {
   if (isAndroid) { try { native.deleteModel(id); } catch { /* ignore */ } return; }
   webDl.delete(id);
