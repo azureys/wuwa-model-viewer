@@ -1,6 +1,7 @@
 // Scene, camera, renderer, configurable multi-light rig, backgrounds, floor and screenshots.
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/OrbitControls.js';
+import { sceneCanvas } from './backgrounds.js';
 
 export const LIGHT_TYPES = {
   directional: 'Directional', point: 'Point', spot: 'Spot', hemisphere: 'Hemisphere', ambient: 'Ambient (shadows)',
@@ -63,7 +64,7 @@ export const BG_PRESETS = [
   { name: 'Sakura', type: 'gradient', top: '#ffe0ec', bottom: '#c8a2c8' },
   { name: 'Black', type: 'color', color: '#000000' },
   { name: 'White', type: 'color', color: '#ffffff' },
-  { name: 'Croma verde', type: 'color', color: '#00b140' },
+  { name: 'Green screen', type: 'color', color: '#00b140' },
 ];
 
 export class Viewer {
@@ -85,6 +86,7 @@ export class Viewer {
     this.controls.minDistance = 0.15;
     this.controls.maxDistance = 30;
     this.controls.update();
+    this.controls.addEventListener('start', () => { this.tween = null; });
     this.world = new THREE.Group();
     this.scene.add(this.world);
     this.lightGroup = new THREE.Group();
@@ -115,21 +117,26 @@ export class Viewer {
     this.renderer.setPixelRatio(this.renderScale);
     this.renderer.setSize(w, h, false);
     this.camera.aspect = w / h;
-    this.camera.updateProjectionMatrix();
+    this.applyInset();
     this.applyBackground();
   }
   setRenderScale(s) { this.renderScale = s; this.resize(); }
-  // Shift the picture up so the model stays visible above a bottom panel of `px` pixels.
+  // Fit the whole picture into the area above a bottom panel of `px` pixels. The canvas keeps covering the
+  // full screen (so the glass panels blur the scene behind them); only the projection is shrunk and moved up.
   setBottomInset(px) { this.bottomInset = px; this.applyInset(); }
   applyInset() {
     const w = this.canvas.clientWidth || window.innerWidth, h = this.canvas.clientHeight || window.innerHeight;
-    const y = Math.min(this.bottomInset || 0, h * 0.6) * 0.5;
-    if (y > 1) this.camera.setViewOffset(w, h, 0, y, w, h); else this.camera.clearViewOffset();
+    const vis = h - Math.min(this.bottomInset || 0, h * 0.7);
+    if (vis < h - 1) {
+      const k = vis / h; // full frustum drawn into the visible strip
+      this.camera.setViewOffset(w * k, h * k, (w * k - w) / 2, 0, w, h);
+    } else this.camera.clearViewOffset();
     this.camera.updateProjectionMatrix();
   }
 
   frame() {
     const dt = Math.min(this.clock.getDelta(), 0.1);
+    if (this.tween) this.stepTween(dt);
     for (const f of this.onBeforeRender) f(dt);
     this.controls.update();
     this.updateFollowLights();
@@ -147,24 +154,56 @@ export class Viewer {
     this.viewPreset('front');
     this.updateLights();
   }
-  viewPreset(name) {
+  // name: front/back/left/right/top/low/threeq/face. animate: glide there instead of jumping.
+  viewPreset(name, animate = false) {
     const c = this.focus, r = this.focusRadius;
     const dist = (r / Math.sin(THREE.MathUtils.degToRad(this.camera.fov / 2))) * 1.08;
     const dirs = {
       front: [0, 0.05, 1], back: [0, 0.05, -1], left: [-1, 0.05, 0], right: [1, 0.05, 0],
       top: [0, 1, 0.001], low: [0, -0.35, 1], threeq: [0.7, 0.15, 0.7],
     };
+    const target = new THREE.Vector3(), pos = new THREE.Vector3();
     if (name === 'face') {
       const head = this.headPosition?.() ?? new THREE.Vector3(c.x, c.y + r * 0.82, c.z);
-      this.controls.target.copy(head);
-      this.camera.position.copy(head).add(new THREE.Vector3(0, 0.02, 0.75));
+      // keep looking from the current side, just closer
+      const side = new THREE.Vector3().subVectors(this.camera.position, this.controls.target).setY(0);
+      if (side.lengthSq() < 1e-6) side.set(0, 0, 1);
+      side.normalize();
+      target.copy(head);
+      // head and shoulders fit both ways, also on a narrow portrait screen
+      const tv = Math.tan(THREE.MathUtils.degToRad(this.camera.fov / 2));
+      const fd = Math.max(0.22 / tv, 0.16 / (tv * this.camera.aspect));
+      pos.copy(head).addScaledVector(side, fd).add(new THREE.Vector3(0, 0.02, 0));
     } else {
       const d = new THREE.Vector3(...dirs[name] ?? dirs.front).normalize();
-      this.controls.target.copy(c);
-      this.camera.position.copy(c).addScaledVector(d, dist);
+      target.copy(c);
+      pos.copy(c).addScaledVector(d, dist);
     }
+    this.lastPreset = name;
+    if (animate) {
+      this.tween = { t: 0, p0: this.camera.position.clone(), t0: this.controls.target.clone(), p1: pos, t1: target };
+      return;
+    }
+    this.tween = null;
+    this.controls.target.copy(target);
+    this.camera.position.copy(pos);
     this.camera.updateProjectionMatrix();
     this.controls.update();
+  }
+  stepTween(dt) {
+    const tw = this.tween;
+    tw.t = Math.min(1, tw.t + dt / 0.45);
+    const e = 1 - Math.pow(1 - tw.t, 3);
+    this.camera.position.lerpVectors(tw.p0, tw.p1, e);
+    this.controls.target.lerpVectors(tw.t0, tw.t1, e);
+    if (tw.t >= 1) this.tween = null;
+  }
+  // Frame the head when far, the whole body when already close.
+  toggleFaceFrame() {
+    const full = (this.focusRadius / Math.sin(THREE.MathUtils.degToRad(this.camera.fov / 2))) * 1.08;
+    const close = (this.tween?.p1 ?? this.camera.position).distanceTo(this.tween?.t1 ?? this.controls.target) < full * 0.6;
+    this.viewPreset(close ? 'front' : 'face', true);
+    return close ? 'body' : 'face';
   }
   setFov(f) { this.camera.fov = f; this.camera.updateProjectionMatrix(); }
 
@@ -240,6 +279,11 @@ export class Viewer {
       const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace;
       this.scene.background = t; this.bgTexture = t; return;
     }
+    if (bg.type === 'scene') {
+      const t = new THREE.CanvasTexture(sceneCanvas(bg.scene, this.camera.aspect, Math.max(this.canvas.width, this.canvas.height, 1024)));
+      t.colorSpace = THREE.SRGBColorSpace;
+      this.scene.background = t; this.bgTexture = t; return;
+    }
     if (bg.type === 'image' && bg.image) {
       const t = new THREE.Texture(bg.image); t.colorSpace = THREE.SRGBColorSpace; t.needsUpdate = true;
       const ia = bg.image.width / bg.image.height, ca = this.camera.aspect;
@@ -274,7 +318,8 @@ export class Viewer {
   setFloorHeight(y) { this.floor.position.y = y; }
 
   // ---------- screenshot ----------
-  screenshot({ scale = 1, transparent = false } = {}) {
+  // aspect: crop the centre of the view to this width/height ratio (photo mode framing).
+  screenshot({ scale = 1, transparent = false, aspect = null } = {}) {
     const r = this.renderer;
     const prevBg = this.scene.background, prevRatio = r.getPixelRatio();
     const prevFloor = this.floor.visible, prevMarkers = this.markers.visible;
@@ -284,7 +329,14 @@ export class Viewer {
     const w = this.canvas.clientWidth, h = this.canvas.clientHeight;
     r.setSize(w, h, false);
     r.render(this.scene, this.camera);
-    const url = this.canvas.toDataURL('image/png');
+    let url;
+    if (aspect) {
+      const W = this.canvas.width, H = this.canvas.height;
+      const cw = Math.round(W / H > aspect ? H * aspect : W), ch = Math.round(W / H > aspect ? H : W / aspect);
+      const c = document.createElement('canvas'); c.width = cw; c.height = ch;
+      c.getContext('2d').drawImage(this.canvas, (W - cw) / 2, (H - ch) / 2, cw, ch, 0, 0, cw, ch);
+      url = c.toDataURL('image/png');
+    } else url = this.canvas.toDataURL('image/png');
     this.scene.background = prevBg; this.floor.visible = prevFloor; this.markers.visible = prevMarkers;
     r.setPixelRatio(prevRatio); r.setSize(w, h, false);
     this.applyBackground();

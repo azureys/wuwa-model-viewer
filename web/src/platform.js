@@ -51,6 +51,26 @@ export const canManage = isAndroid || !devModels;
 export async function deleteModel(id) { if (isAndroid) native.deleteModel(id); else await webstore.deleteModel(id); }
 export async function renameModel(id, name) { if (isAndroid) native.renameModel(id, name); else await webstore.renameModel(id, name); }
 
+// ---- storage management
+// { path: bytes } for every file of a model
+export async function fileSizes(id) {
+  if (isAndroid) return JSON.parse(native.fileSizes(id));
+  if (devModels) return {};
+  return webstore.fileSizes(id);
+}
+export async function deleteFiles(id, paths) {
+  if (isAndroid) { native.deleteFiles(id, JSON.stringify(paths)); return; }
+  await webstore.deleteFiles(id, paths);
+}
+// { used, free } in bytes (free may be null when unknown)
+export async function storageInfo() {
+  if (isAndroid) return JSON.parse(native.storageInfo());
+  try {
+    const e = await navigator.storage?.estimate?.();
+    return { used: e?.usage ?? null, free: e?.quota != null ? e.quota - (e.usage ?? 0) : null };
+  } catch { return { used: null, free: null }; }
+}
+
 // Save a data: URL or text to the device (Android: Pictures/Download), or download in the browser.
 export function saveFile(name, data, mime) {
   if (isAndroid) {
