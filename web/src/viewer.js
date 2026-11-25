@@ -1,7 +1,7 @@
-// Scene, camera, renderer, configurable multi-light rig, backgrounds, floor and screenshots.
+// Renderer, orbit camera, configurable multi-light rig, backgrounds, floor and screenshots.
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/OrbitControls.js';
-import { sceneCanvas } from './backgrounds.js';
+import { findBackground, paintCanvas, createGalaxy, DEFAULT_BACKGROUND } from './backgrounds.js';
 
 export const LIGHT_TYPES = {
   directional: 'Directional', point: 'Point', spot: 'Spot', hemisphere: 'Hemisphere', ambient: 'Ambient (shadows)',
@@ -55,18 +55,6 @@ export const LIGHT_PRESETS = {
   'Flat': () => [newLight('ambient', { intensity: 1.4 })],
 };
 
-export const BG_PRESETS = [
-  { name: 'Studio', type: 'gradient', top: '#3a4157', bottom: '#12141c' },
-  { name: 'Menu', type: 'gradient', top: '#d9dde8', bottom: '#8e95a8' },
-  { name: 'Sky', type: 'gradient', top: '#7ec3ff', bottom: '#e9f4ff' },
-  { name: 'Sunset', type: 'gradient', top: '#3b2a63', bottom: '#ff9e6b' },
-  { name: 'Night', type: 'gradient', top: '#05070f', bottom: '#1d2645' },
-  { name: 'Sakura', type: 'gradient', top: '#ffe0ec', bottom: '#c8a2c8' },
-  { name: 'Black', type: 'color', color: '#000000' },
-  { name: 'White', type: 'color', color: '#ffffff' },
-  { name: 'Green screen', type: 'color', color: '#00b140' },
-];
-
 export class Viewer {
   constructor(canvas) {
     this.canvas = canvas;
@@ -101,7 +89,10 @@ export class Viewer {
     this.scene.add(this.markers);
     this.focus = new THREE.Vector3(0, 0.9, 0);
     this.focusRadius = 1;
-    this.bg = { type: 'gradient', top: '#3a4157', bottom: '#12141c', color: '#20242f', image: null, fit: 'cover' };
+    this.bg = DEFAULT_BACKGROUND;
+    this.galaxy = createGalaxy();
+    this.galaxy.visible = false;
+    this.scene.add(this.galaxy);
     this.floorMode = 'shadow';
     this.floorColor = '#2a2f40';
     this.buildFloor();
@@ -132,11 +123,13 @@ export class Viewer {
       this.camera.setViewOffset(w * k, h * k, (w * k - w) / 2, 0, w, h);
     } else this.camera.clearViewOffset();
     this.camera.updateProjectionMatrix();
+    this.galaxy?.setCenterY(1 - (vis / h) / 2);
   }
 
   frame() {
     const dt = Math.min(this.clock.getDelta(), 0.1);
     if (this.tween) this.stepTween(dt);
+    if (this.galaxy.visible) this.galaxy.update(dt);
     for (const f of this.onBeforeRender) f(dt);
     this.controls.update();
     this.updateFollowLights();
@@ -154,14 +147,10 @@ export class Viewer {
     this.viewPreset('front');
     this.updateLights();
   }
-  // name: front/back/left/right/top/low/threeq/face. animate: glide there instead of jumping.
+  // name: 'front' (whole body) or 'face' (head and shoulders). animate: glide there instead of jumping.
   viewPreset(name, animate = false) {
     const c = this.focus, r = this.focusRadius;
     const dist = (r / Math.sin(THREE.MathUtils.degToRad(this.camera.fov / 2))) * 1.08;
-    const dirs = {
-      front: [0, 0.05, 1], back: [0, 0.05, -1], left: [-1, 0.05, 0], right: [1, 0.05, 0],
-      top: [0, 1, 0.001], low: [0, -0.35, 1], threeq: [0.7, 0.15, 0.7],
-    };
     const target = new THREE.Vector3(), pos = new THREE.Vector3();
     if (name === 'face') {
       const head = this.headPosition?.() ?? new THREE.Vector3(c.x, c.y + r * 0.82, c.z);
@@ -175,11 +164,9 @@ export class Viewer {
       const fd = Math.max(0.22 / tv, 0.16 / (tv * this.camera.aspect));
       pos.copy(head).addScaledVector(side, fd).add(new THREE.Vector3(0, 0.02, 0));
     } else {
-      const d = new THREE.Vector3(...dirs[name] ?? dirs.front).normalize();
       target.copy(c);
-      pos.copy(c).addScaledVector(d, dist);
+      pos.copy(c).addScaledVector(new THREE.Vector3(0, 0.05, 1).normalize(), dist);
     }
-    this.lastPreset = name;
     if (animate) {
       this.tween = { t: 0, p0: this.camera.position.clone(), t0: this.controls.target.clone(), p1: pos, t1: target };
       return;
@@ -205,7 +192,6 @@ export class Viewer {
     this.viewPreset(close ? 'front' : 'face', true);
     return close ? 'body' : 'face';
   }
-  setFov(f) { this.camera.fov = f; this.camera.updateProjectionMatrix(); }
 
   // ---------- lights ----------
   setLights(list) { this.lights = list; this.rebuildLights(); }
@@ -264,33 +250,22 @@ export class Viewer {
   updateFollowLights() { if (this.lights.some((l) => l.followCamera)) this.updateLights(); }
 
   // ---------- background ----------
-  setBackground(bg) { Object.assign(this.bg, bg); this.applyBackground(); }
+  // name: one of BACKGROUNDS in backgrounds.js
+  setBackground(name) { this.bg = findBackground(name).name; this.applyBackground(); }
+  get transparentBackground() { return this.bg === 'Transparent'; }
   applyBackground() {
-    const bg = this.bg;
-    if (this.bgTexture) { this.bgTexture.dispose?.(); this.bgTexture = null; }
-    if (bg.type === 'transparent') { this.scene.background = null; this.renderer.setClearColor(0x000000, 0); document.body.style.background = 'repeating-conic-gradient(#2a2f3d 0% 25%, #1b1f2a 0% 50%) 0 0 / 24px 24px'; return; }
-    document.body.style.background = '';
-    this.renderer.setClearColor(0x000000, 1);
-    if (bg.type === 'color') { this.scene.background = new THREE.Color(bg.color); return; }
-    if (bg.type === 'gradient') {
-      const c = document.createElement('canvas'); c.width = 4; c.height = 256;
-      const g = c.getContext('2d'); const grd = g.createLinearGradient(0, 0, 0, 256);
-      grd.addColorStop(0, bg.top); grd.addColorStop(1, bg.bottom); g.fillStyle = grd; g.fillRect(0, 0, 4, 256);
-      const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace;
-      this.scene.background = t; this.bgTexture = t; return;
-    }
-    if (bg.type === 'scene') {
-      const t = new THREE.CanvasTexture(sceneCanvas(bg.scene, this.camera.aspect, Math.max(this.canvas.width, this.canvas.height, 1024)));
+    const bg = findBackground(this.bg);
+    if (this.bgTexture) { this.bgTexture.dispose(); this.bgTexture = null; }
+    this.scene.background = null;
+    this.galaxy.visible = bg.kind === 'shader';
+    const clear = bg.kind === 'none';
+    this.renderer.setClearColor(0x000000, clear ? 0 : 1);
+    document.body.style.background = clear ? 'repeating-conic-gradient(#2a2f3d 0% 25%, #1b1f2a 0% 50%) 0 0 / 24px 24px' : '';
+    if (bg.kind === 'color') this.scene.background = new THREE.Color(bg.color);
+    if (bg.kind === 'paint') {
+      const t = new THREE.CanvasTexture(paintCanvas(bg, this.camera.aspect, Math.max(this.canvas.width, this.canvas.height, 1024)));
       t.colorSpace = THREE.SRGBColorSpace;
-      this.scene.background = t; this.bgTexture = t; return;
-    }
-    if (bg.type === 'image' && bg.image) {
-      const t = new THREE.Texture(bg.image); t.colorSpace = THREE.SRGBColorSpace; t.needsUpdate = true;
-      const ia = bg.image.width / bg.image.height, ca = this.camera.aspect;
-      if (bg.fit === 'cover') {
-        if (ia > ca) { t.repeat.set(ca / ia, 1); t.offset.set((1 - ca / ia) / 2, 0); } else { t.repeat.set(1, ia / ca); t.offset.set(0, (1 - ia / ca) / 2); }
-      }
-      this.scene.background = t; this.bgTexture = t;
+      this.scene.background = this.bgTexture = t;
     }
   }
 
@@ -322,9 +297,9 @@ export class Viewer {
   screenshot({ scale = 1, transparent = false, aspect = null } = {}) {
     const r = this.renderer;
     const prevBg = this.scene.background, prevRatio = r.getPixelRatio();
-    const prevFloor = this.floor.visible, prevMarkers = this.markers.visible;
+    const prevFloor = this.floor.visible, prevMarkers = this.markers.visible, prevGalaxy = this.galaxy.visible;
     this.markers.visible = false;
-    if (transparent) { this.scene.background = null; r.setClearColor(0, 0); this.floor.visible = false; }
+    if (transparent) { this.scene.background = null; this.galaxy.visible = false; r.setClearColor(0, 0); this.floor.visible = false; }
     r.setPixelRatio(prevRatio * scale);
     const w = this.canvas.clientWidth, h = this.canvas.clientHeight;
     r.setSize(w, h, false);
@@ -337,7 +312,7 @@ export class Viewer {
       c.getContext('2d').drawImage(this.canvas, (W - cw) / 2, (H - ch) / 2, cw, ch, 0, 0, cw, ch);
       url = c.toDataURL('image/png');
     } else url = this.canvas.toDataURL('image/png');
-    this.scene.background = prevBg; this.floor.visible = prevFloor; this.markers.visible = prevMarkers;
+    this.scene.background = prevBg; this.floor.visible = prevFloor; this.markers.visible = prevMarkers; this.galaxy.visible = prevGalaxy;
     r.setPixelRatio(prevRatio); r.setSize(w, h, false);
     this.applyBackground();
     return url;

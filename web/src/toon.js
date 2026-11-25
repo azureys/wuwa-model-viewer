@@ -245,7 +245,7 @@ void main() {
 const toLinear = (c) => (c ? new THREE.Color().setRGB(c.R, c.G, c.B, THREE.LinearSRGBColorSpace) : null);
 const clampColor = (c, max = 1) => new THREE.Color(Math.min(c.r, max), Math.min(c.g, max), Math.min(c.b, max));
 
-export function classifyMaterial(name, mat) {
+function classifyMaterial(name, mat) {
   const model = mat?.raw?.Properties?.BasePropertyOverrides?.ShadingModel ?? '';
   if (/ToonHair/i.test(model) || /hair|bangs/i.test(name)) return 1;
   if (/eye/i.test(name)) return 3;

@@ -1,6 +1,6 @@
 // Main application: model library, viewer state and all the panels.
 import * as THREE from 'three';
-import { Viewer, LIGHT_PRESETS, LIGHT_TYPES, BG_PRESETS, newLight } from './viewer.js';
+import { Viewer, LIGHT_PRESETS, LIGHT_TYPES, newLight } from './viewer.js';
 import { Rig, textureSettings, clearTextureCache, computeIslands, setIslandHidden } from './character.js';
 import { loadAnim, buildClip, sampleCurve, describeAnims, ribbonFor, ribbonTrackFilter, removeTracksFor, isFightAnim } from './animation.js';
 import { toonGlobals } from './toon.js';
@@ -9,39 +9,10 @@ import * as platform from './platform.js';
 import { initMusic } from './music.js';
 import { fetchRoster, fetchCharacter, downloadCharacter, downloadWeapon } from './encore.js';
 import { icon, hydrateIcons } from './icons.js';
-import { SCENES, sceneThumb } from './backgrounds.js';
+import { BACKGROUNDS, DEFAULT_BACKGROUND, backgroundThumb } from './backgrounds.js';
+import { $, h, toast, status, slider, toggle, chips, popMenu, popover, dropdown } from './ui.js';
 
 hydrateIcons();
-
-const $ = (s) => document.querySelector(s);
-function h(tag, attrs = {}, ...kids) {
-  const el = document.createElement(tag);
-  for (const [k, v] of Object.entries(attrs ?? {})) {
-    if (v == null || v === false) continue;
-    if (k.startsWith('on')) el.addEventListener(k.slice(2).toLowerCase(), v);
-    else if (k === 'class') el.className = v;
-    else if (k === 'style' && typeof v === 'object') Object.assign(el.style, v);
-    else if (k in el && typeof v !== 'string') el[k] = v;
-    else el.setAttribute(k, v === true ? '' : v);
-  }
-  for (const c of kids.flat()) if (c != null && c !== false) el.append(c.nodeType ? c : document.createTextNode(String(c)));
-  return el;
-}
-const toast = (msg, ms = 2600) => { const t = $('#toast'); t.textContent = msg; t.hidden = false; clearTimeout(toast.t); toast.t = setTimeout(() => (t.hidden = true), ms); };
-const status = (msg) => { $('#status').hidden = !msg; $('#statusText').textContent = msg ?? ''; };
-
-function slider(label, { min, max, step = 0.01, value, onInput, fmt = (v) => (+v).toFixed(2) }) {
-  const val = h('span', { class: 'val' }, fmt(value));
-  const input = h('input', { type: 'range', min, max, step, value, oninput: (e) => { val.textContent = fmt(e.target.value); onInput(+e.target.value); } });
-  return h('div', { class: 'row' }, h('label', {}, label), input, val);
-}
-function toggle(label, checked, onChange) {
-  return h('div', { class: 'row' }, h('label', {}, label),
-    h('label', { class: 'switch' }, h('input', { type: 'checkbox', checked, onchange: (e) => onChange(e.target.checked) }), h('span')));
-}
-function chips(options, current, onPick) {
-  return h('div', { class: 'chips' }, options.map(([v, l]) => h('button', { class: 'chip', 'aria-pressed': String(v === current), onclick: () => onPick(v) }, l)));
-}
 
 // keep the playback bar above the bottom sheet, and fit the model into the space above the panels
 function updateInset() {
@@ -72,9 +43,13 @@ viewer.headPosition = () => S.rig?.findBone('Bip001Head')?.getWorldPosition(new 
 
 // lights / background / look restored from the last session
 viewer.setLights(platform.store.get('lights', null)?.map((l) => newLight(l.type, l)) ?? LIGHT_PRESETS['Studio']());
-viewer.setBackground(platform.store.get('bg', BG_PRESETS[0]));
+{ // older versions stored an object here; anything unknown falls back to the default
+  const saved = platform.store.get('bg', DEFAULT_BACKGROUND);
+  viewer.setBackground(typeof saved === 'string' ? saved : DEFAULT_BACKGROUND);
+}
+function pickBackground(name) { viewer.setBackground(name); platform.store.set('bg', viewer.bg); }
 viewer.setFloor(platform.store.get('floor', 'shadow'));
-const LOOK_DEFAULTS = { outline: 1, outlineOn: true, rim: 0.6, soft: 1, selfShadow: false, spec: 1, sat: 1, exposure: 1, renderScale: Math.min(devicePixelRatio, platform.isMobile ? 1.75 : 2), texSize: platform.isMobile ? 1024 : 2048, fov: 30, solid: false };
+const LOOK_DEFAULTS = { outline: 1, outlineOn: true, rim: 0.6, soft: 1, selfShadow: false, spec: 1, sat: 1, exposure: 1, renderScale: Math.min(devicePixelRatio, platform.isMobile ? 1.75 : 2), texSize: platform.isMobile ? 1024 : 2048, solid: false };
 const look = Object.assign({ ...LOOK_DEFAULTS }, platform.store.get('look', {}));
 function applyLook() {
   toonGlobals.uOutlineScale.value = look.outline; toonGlobals.uOutlineOn.value = look.outlineOn ? 1 : 0;
@@ -83,7 +58,6 @@ function applyLook() {
   toonGlobals.uSaturation.value = look.sat; toonGlobals.uExposure.value = look.exposure;
   textureSettings.maxSize = look.texSize;
   textureSettings.jsDecode = platform.isSafari;
-  viewer.setFov(look.fov);
   document.body.classList.toggle('solid', !!look.solid);
   platform.store.set('look', look);
 }
@@ -828,34 +802,11 @@ function renderLightsTab(body) {
 
 // ---- Scene
 function renderSceneTab(body) {
-  const bg = viewer.bg;
-  const saveBg = () => platform.store.set('bg', { ...viewer.bg, image: null, type: viewer.bg.type === 'image' ? 'gradient' : viewer.bg.type });
   body.append(h('h3', {}, 'Background'));
-  body.append(h('div', { class: 'chips' }, BG_PRESETS.map((p) => h('button', { class: 'chip small', onclick: () => { viewer.setBackground(p); saveBg(); renderTab(); } },
-    h('span', { style: { display: 'inline-block', width: '12px', height: '12px', borderRadius: '3px', marginRight: '5px', background: p.type === 'gradient' ? `linear-gradient(${p.top},${p.bottom})` : p.color } }), p.name))));
-  body.append(h('div', { class: 'chips', style: { flexWrap: 'nowrap', overflowX: 'auto' } }, Object.keys(SCENES).map((n) => h('button', { class: 'chip small' + (bg.type === 'scene' && bg.scene === n ? ' on' : ''), style: { flex: 'none' }, onclick: () => { viewer.setBackground({ type: 'scene', scene: n }); saveBg(); renderTab(); } },
-    h('span', { style: { display: 'inline-block', width: '14px', height: '14px', borderRadius: '4px', marginRight: '6px', verticalAlign: '-2px', background: `url(${sceneThumb(n)}) center/cover` } }), n))));
-  body.append(chips([['gradient', 'Gradient'], ['color', 'Color'], ['image', 'Image'], ['transparent', 'Transparent']], bg.type, async (v) => {
-    if (v === 'image') {
-      const f = await platform.pickFile('image/*'); if (!f) return;
-      const img = await createImageBitmap(f);
-      viewer.setBackground({ type: 'image', image: img });
-    } else viewer.setBackground({ type: v });
-    saveBg(); renderTab();
-  }));
-  if (bg.type === 'gradient') body.append(h('div', { class: 'row' }, h('label', {}, 'Top'), h('input', { type: 'color', value: bg.top, oninput: (e) => { viewer.setBackground({ top: e.target.value }); saveBg(); } }),
-    h('label', {}, 'Bottom'), h('input', { type: 'color', value: bg.bottom, oninput: (e) => { viewer.setBackground({ bottom: e.target.value }); saveBg(); } })));
-  if (bg.type === 'color') body.append(h('div', { class: 'row' }, h('label', {}, 'Color'), h('input', { type: 'color', value: bg.color, oninput: (e) => { viewer.setBackground({ color: e.target.value }); saveBg(); } })));
-  if (bg.type === 'image') body.append(chips([['cover', 'Fill'], ['stretch', 'Stretch']], bg.fit, (v) => { viewer.setBackground({ fit: v }); renderTab(); }));
+  body.append(dropdown(BACKGROUNDS.map(({ name }) => ({ value: name, label: name, swatch: swatch(name) })), viewer.bg, (name) => { pickBackground(name); renderTab(); }));
   body.append(h('h3', {}, 'Floor'));
   body.append(chips([['shadow', 'Shadow only'], ['disc', 'Platform'], ['grid', 'Grid'], ['none', 'None']], viewer.floorMode, (v) => { viewer.setFloor(v); platform.store.set('floor', v); renderTab(); }));
   if (viewer.floorMode === 'disc') body.append(h('div', { class: 'row' }, h('label', {}, 'Platform color'), h('input', { type: 'color', value: viewer.floorColor, oninput: (e) => viewer.setFloor('disc', e.target.value) })));
-  body.append(h('h3', {}, 'Camera'));
-  body.append(h('div', { class: 'grid3' }, [['front', 'Front'], ['threeq', '3/4'], ['left', 'Side'], ['back', 'Back'], ['top', 'Top'], ['low', 'Low angle'], ['face', 'Face']].map(([k, l]) =>
-    h('button', { class: 'btn', onclick: () => viewer.viewPreset(k, true) }, l))));
-  body.append(slider('Field of view', { min: 10, max: 75, step: 1, value: look.fov, onInput: (v) => { look.fov = v; applyLook(); }, fmt: (v) => `${Math.round(v)}°` }));
-  body.append(toggle('Auto-rotate', viewer.controls.autoRotate, (v) => { viewer.controls.autoRotate = v; }));
-  body.append(slider('Rotation speed', { min: -10, max: 10, step: 0.5, value: viewer.controls.autoRotateSpeed, onInput: (v) => (viewer.controls.autoRotateSpeed = v), fmt: (v) => (+v).toFixed(1) }));
   body.append(h('h3', {}, 'Screenshot'));
   body.append(h('button', { class: 'btn wide', style: { marginBottom: '6px' }, onclick: () => enterPhoto() }, icon('camera'), 'Photo mode (framing, timer, backgrounds)'));
   body.append(h('div', { class: 'grid3' },
@@ -863,6 +814,7 @@ function renderSceneTab(body) {
     h('button', { class: 'btn', onclick: () => shot({ scale: 2 }) }, '📷 High (2×)'),
     h('button', { class: 'btn', onclick: () => shot({ transparent: true, scale: 2 }) }, '📷 Transparent')));
 }
+const swatch = (name) => h('i', { class: 'swatch', style: { background: backgroundThumb(name) } });
 function shot(opts) {
   pose.markers.visible && (pose.markers.visible = false);
   const helperVis = pose.gizmoHelper.visible; pose.gizmoHelper.visible = false;
@@ -935,17 +887,6 @@ function setAvatar(el, id, name) {
 function portrait(m, cls = '') {
   const info = libInfo[m.id];
   return info?.icon ? h('img', { src: info.icon, alt: '', class: cls, loading: 'lazy' }) : h('div', { class: 'initial ' + cls }, (m.name || '?').trim().charAt(0).toUpperCase());
-}
-function popMenu(anchor, items) {
-  const r = anchor.getBoundingClientRect();
-  const scrim = h('div', { class: 'scrim', onclick: () => close() });
-  const menu = h('div', { class: 'popmenu glass' }, items.map(([ic, label, fn, cls]) => h('button', { class: cls ?? '', onclick: () => { close(); fn(); } }, icon(ic), label)));
-  const close = () => { scrim.remove(); menu.remove(); popMenu.close = null; };
-  document.body.append(scrim, menu);
-  const mw = menu.offsetWidth, mh = menu.offsetHeight;
-  menu.style.left = `${Math.max(8, Math.min(innerWidth - mw - 8, r.right - mw))}px`;
-  menu.style.top = `${r.bottom + mh + 8 > innerHeight ? Math.max(8, r.top - mh - 6) : r.bottom + 6}px`;
-  popMenu.close = close;
 }
 let libModels = [];
 async function openLibrary() {
@@ -1182,11 +1123,6 @@ platform.onFileSaved((msg) => toast(msg));
 // ---------------------------------------------------------------- photo mode
 const photo = { on: false, ratio: platform.store.get('photoRatio', '9:16'), timer: platform.store.get('photoTimer', 0) };
 const RATIOS = [['full', 'Full'], ['9:16', '9:16'], ['4:5', '4:5'], ['1:1', '1:1']];
-const PHOTO_BGS = [
-  ...Object.keys(SCENES).map((n) => ({ name: n, bg: { type: 'scene', scene: n }, thumb: () => `url(${sceneThumb(n)})` })),
-  ...BG_PRESETS.filter((p) => ['Studio', 'Menu', 'Black', 'White', 'Green screen'].includes(p.name)).map((p) => ({ name: p.name, bg: p, thumb: () => p.type === 'gradient' ? `linear-gradient(${p.top},${p.bottom})` : p.color })),
-  { name: 'Transparent', bg: { type: 'transparent' }, thumb: () => 'repeating-conic-gradient(#888 0% 25%, #ddd 0% 50%) 0 0 / 12px 12px' },
-];
 const ratioValue = () => (photo.ratio === 'full' ? null : (([a, b]) => a / b)(photo.ratio.split(':').map(Number)));
 function layoutFrame() {
   const a = ratioValue(), W = innerWidth, H = innerHeight;
@@ -1200,11 +1136,8 @@ function drawPhotoControls() {
   $('#ratioSeg').replaceChildren(...RATIOS.map(([v, l]) => h('button', { class: photo.ratio === v ? 'on' : '', onclick: () => { photo.ratio = v; platform.store.set('photoRatio', v); layoutFrame(); drawPhotoControls(); } }, l)));
   $('#timerLabel').textContent = photo.timer ? `${photo.timer}s` : '';
   $('#btnTimer').classList.toggle('on', !!photo.timer);
-  const cur = viewer.bg;
-  $('#bgStrip').replaceChildren(...PHOTO_BGS.map((b) => {
-    const on = b.bg.type === cur.type && (b.bg.type === 'scene' ? b.bg.scene === cur.scene : b.bg.type === 'transparent' || (b.bg.type === 'color' ? b.bg.color === cur.color : b.bg.top === cur.top && b.bg.bottom === cur.bottom));
-    return h('button', { class: on ? 'on' : '', onclick: () => { viewer.setBackground({ ...b.bg }); platform.store.set('bg', { ...viewer.bg, image: null }); drawPhotoControls(); } }, h('i', { style: { background: b.thumb() } }), b.name);
-  }));
+  $('#bgStrip').replaceChildren(...BACKGROUNDS.map(({ name }) =>
+    h('button', { class: name === viewer.bg ? 'on' : '', onclick: () => { pickBackground(name); drawPhotoControls(); } }, swatch(name), name)));
 }
 function enterPhoto() {
   if (photo.on) return;
@@ -1235,7 +1168,7 @@ async function takePhoto() {
     for (let n = photo.timer; n > 0; n--) { cd.textContent = n; await new Promise((r) => setTimeout(r, 1000)); }
     cd.hidden = true;
   }
-  const url = viewer.screenshot({ scale: 2, aspect: ratioValue(), transparent: viewer.bg.type === 'transparent' });
+  const url = viewer.screenshot({ scale: 2, aspect: ratioValue(), transparent: viewer.transparentBackground });
   const f = $('#flash'); f.hidden = false; f.style.animation = 'none'; void f.offsetWidth; f.style.animation = ''; setTimeout(() => (f.hidden = true), 380);
   if (photo.timer) document.body.classList.remove('photo-bare');
   platform.saveFile(`${(S.modelName || 'photo').replace(/[\\/:*?"<>|]/g, '_')}-${Date.now()}.png`, url, 'image/png');
@@ -1264,7 +1197,7 @@ initMusic();
 window.__dbg = { S, viewer, pose, springs, THREE, playAnim, renderTab, setCutMode, enterPhoto, exitPhoto, openStorage, openLibrary };
 // Android back button: close the open layer first
 window.__wuwaBack = () => {
-  if (popMenu.close) { popMenu.close(); return true; }
+  if (popover.close) { popover.close(); return true; }
   if (!$('#store').hidden) { $('#btnStoreBack').click(); return true; }
   if (!$('#library').hidden && S.rig) { closeLibrary(); return true; }
   if (photo.on) { if (document.body.classList.contains('photo-bare')) document.body.classList.remove('photo-bare'); else exitPhoto(); return true; }

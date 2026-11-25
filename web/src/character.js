@@ -10,7 +10,7 @@ export const textureSettings = { maxSize: 2048, jsDecode: false };
 
 const WHITE = (() => { const t = new THREE.DataTexture(new Uint8Array([255, 255, 255, 255]), 1, 1); t.needsUpdate = true; return t; })();
 
-export async function loadTexture(src, path, srgb = true) {
+async function loadTexture(src, path, srgb = true) {
   const key = `${src.base}|${path}|${srgb}|${textureSettings.maxSize}`;
   if (textureCache.has(key)) return textureCache.get(key);
   const p = (async () => {

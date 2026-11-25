@@ -9,7 +9,7 @@ export const isSafari = isIOS || (/Safari\//.test(navigator.userAgent) && !/Chro
 export const isMobile = isAndroid || isIOS || /Android|Mobi/.test(navigator.userAgent);
 // installed to the home screen (iOS) or running as an installed PWA
 export const isStandalone = navigator.standalone === true || matchMedia('(display-mode: standalone)').matches;
-export const MODELS_BASE = isAndroid ? 'https://appassets.androidplatform.net/models' : './models';
+const MODELS_BASE = isAndroid ? 'https://appassets.androidplatform.net/models' : './models';
 // dev server with unzipped sample folders (tools/devserver.mjs) instead of on-device storage
 const devModels = !isAndroid && new URLSearchParams(location.search).has('dev');
 const emit = (k, ...a) => listeners[k].forEach((f) => f(...a));
@@ -124,7 +124,7 @@ export const store = {
 // Android downloads natively straight into the model folder. The browser / iPhone version can't read
 // encore.moe's file storage directly (it only allows encore.moe itself), so it goes through a small
 // relay (Cloudflare Worker, see worker/) and keeps the files in IndexedDB.
-export const DOWNLOAD_RELAY = 'https://wuwa-download-relay.azureys.workers.dev';
+const DOWNLOAD_RELAY = 'https://wuwa-download-relay.azureys.workers.dev';
 export function relayUrl() {
   const q = new URLSearchParams(location.search).get('relay');
   return String(q || store.get('relay', '') || DOWNLOAD_RELAY).trim().replace(/\/+$/, '');
