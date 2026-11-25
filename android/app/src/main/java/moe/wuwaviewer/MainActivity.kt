@@ -202,7 +202,7 @@ class MainActivity : ComponentActivity() {
                 }
                 File(dir, "index.json").writeText(JSONObject().put("files", files).toString())
                 File(dir, "meta.json").writeText(JSONObject().put("name", name).put("size", size).put("files", files.length()).put("date", System.currentTimeMillis()).toString())
-                progress(100, "Listo")
+                progress(100, "Done")
                 js("__wuwa.importDone", JSONObject().put("id", id).put("name", name).toString())
             } catch (e: Throwable) {
                 target?.deleteRecursively()
@@ -238,6 +238,47 @@ class MainActivity : ComponentActivity() {
             val f = File(File(modelsDir, id), "meta.json")
             val meta = try { JSONObject(f.readText()) } catch (e: Exception) { JSONObject() }
             f.writeText(meta.put("name", name).toString())
+        }
+
+        /** Size of every file of a model: {"path": bytes}. */
+        @JavascriptInterface
+        fun fileSizes(id: String): String {
+            val dir = File(modelsDir, id).canonicalFile
+            val out = JSONObject()
+            if (dir.parentFile != modelsDir.canonicalFile) return out.toString()
+            dir.walkTopDown().filter { it.isFile && it.name != "index.json" && it.name != "meta.json" }.forEach {
+                out.put(it.relativeTo(dir).path.replace(File.separatorChar, '/'), it.length())
+            }
+            return out.toString()
+        }
+
+        /** Delete some files of a model (e.g. combat animations) and rewrite its index and size. */
+        @JavascriptInterface
+        fun deleteFiles(id: String, pathsJson: String) {
+            val dir = File(modelsDir, id).canonicalFile
+            if (dir.parentFile != modelsDir.canonicalFile) return
+            val arr = JSONArray(pathsJson)
+            for (i in 0 until arr.length()) {
+                val f = File(dir, arr.getString(i)).canonicalFile
+                if (f.path.startsWith(dir.path + File.separator) && f.isFile) f.delete()
+            }
+            val files = JSONArray()
+            var size = 0L
+            dir.walkTopDown().filter { it.isFile && !it.name.endsWith(".part") && it.name != "index.json" && it.name != "meta.json" }.forEach {
+                files.put(it.relativeTo(dir).path.replace(File.separatorChar, '/')); size += it.length()
+            }
+            File(dir, "index.json").writeText(JSONObject().put("files", files).toString())
+            val mf = File(dir, "meta.json")
+            val meta = try { JSONObject(mf.readText()) } catch (e: Exception) { JSONObject().put("name", id) }
+            mf.writeText(meta.put("size", size).put("files", files.length()).toString())
+        }
+
+        /** {"used": bytes used by models, "free": free bytes on the app's storage} */
+        @JavascriptInterface
+        fun storageInfo(): String {
+            var used = 0L
+            modelsDir.walkTopDown().filter { it.isFile }.forEach { used += it.length() }
+            return JSONObject().put("used", used).put("free", filesDir.usableSpace).toString()
         }
 
         /** Reserve a folder for a model downloaded from encore.moe. */

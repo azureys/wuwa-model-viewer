@@ -2,12 +2,16 @@
 import * as THREE from 'three';
 import { Viewer, LIGHT_PRESETS, LIGHT_TYPES, BG_PRESETS, newLight } from './viewer.js';
 import { Rig, textureSettings, clearTextureCache, computeIslands, setIslandHidden } from './character.js';
-import { loadAnim, buildClip, sampleCurve, describeAnims, ribbonFor, ribbonTrackFilter, removeTracksFor } from './animation.js';
+import { loadAnim, buildClip, sampleCurve, describeAnims, ribbonFor, ribbonTrackFilter, removeTracksFor, isFightAnim } from './animation.js';
 import { toonGlobals } from './toon.js';
 import { PoseTool, SpringBones, BODY_PARTS, FINGER_PARTS } from './pose.js';
 import * as platform from './platform.js';
 import { music } from './music.js';
 import { fetchRoster, fetchCharacter, downloadCharacter } from './encore.js';
+import { icon, hydrateIcons } from './icons.js';
+import { SCENES, sceneThumb } from './backgrounds.js';
+
+hydrateIcons();
 
 const $ = (s) => document.querySelector(s);
 function h(tag, attrs = {}, ...kids) {
@@ -39,16 +43,16 @@ function chips(options, current, onPick) {
   return h('div', { class: 'chips' }, options.map(([v, l]) => h('button', { class: 'chip', 'aria-pressed': String(v === current), onclick: () => onPick(v) }, l)));
 }
 
-// keep the playback bar just above the bottom sheet
-new ResizeObserver(() => {
+// keep the playback bar above the bottom sheet, and fit the model into the space above the panels
+function updateInset() {
   const sh = $('#sheet');
   const land = matchMedia('(orientation: landscape) and (min-width: 700px)').matches;
-  const hpx = sh.hidden || land ? 0 : sh.offsetHeight;
+  const open = !sh.hidden && !land && !document.body.classList.contains('photo');
+  const hpx = open ? sh.offsetHeight : 0;
   document.body.style.setProperty('--sheet-h', `${hpx}px`);
-  const cv = $('#view');
-  const want = hpx ? `calc(100% - ${hpx}px - 56px)` : '100%';
-  if (cv.style.height !== want) { cv.style.height = want; viewer.resize(); }
-}).observe($('#sheet'));
+  viewer.setBottomInset(open ? Math.max(0, innerHeight - sh.getBoundingClientRect().top + 8) : 0);
+}
+new ResizeObserver(() => updateInset()).observe($('#sheet'));
 
 // ---------------------------------------------------------------- state
 const viewer = new Viewer($('#view'));
@@ -62,13 +66,15 @@ const S = {
 };
 const pose = new PoseTool(viewer, (why) => { if (why === 'select' && S.tab === 'pose') renderTab(); });
 const springs = new SpringBones();
+const SPRING_DEFAULTS = { enabled: springs.enabled, stiffness: springs.stiffness, gravity: springs.gravity, damping: springs.damping };
 viewer.headPosition = () => S.rig?.findBone('Bip001Head')?.getWorldPosition(new THREE.Vector3()) ?? null;
 
 // lights / background / look restored from the last session
 viewer.setLights(platform.store.get('lights', null)?.map((l) => newLight(l.type, l)) ?? LIGHT_PRESETS['Studio']());
 viewer.setBackground(platform.store.get('bg', BG_PRESETS[0]));
 viewer.setFloor(platform.store.get('floor', 'shadow'));
-const look = Object.assign({ outline: 1, outlineOn: true, rim: 0.6, soft: 1, selfShadow: false, spec: 1, sat: 1, exposure: 1, renderScale: Math.min(devicePixelRatio, platform.isMobile ? 1.75 : 2), texSize: platform.isMobile ? 1024 : 2048, fov: 30 }, platform.store.get('look', {}));
+const LOOK_DEFAULTS = { outline: 1, outlineOn: true, rim: 0.6, soft: 1, selfShadow: false, spec: 1, sat: 1, exposure: 1, renderScale: Math.min(devicePixelRatio, platform.isMobile ? 1.75 : 2), texSize: platform.isMobile ? 1024 : 2048, fov: 30, solid: false };
+const look = Object.assign({ ...LOOK_DEFAULTS }, platform.store.get('look', {}));
 function applyLook() {
   toonGlobals.uOutlineScale.value = look.outline; toonGlobals.uOutlineOn.value = look.outlineOn ? 1 : 0;
   toonGlobals.uRimStrength.value = look.rim; toonGlobals.uShadowSoft.value = look.soft;
@@ -77,6 +83,7 @@ function applyLook() {
   textureSettings.maxSize = look.texSize;
   textureSettings.jsDecode = platform.isSafari;
   viewer.setFov(look.fov);
+  document.body.classList.toggle('solid', !!look.solid);
   platform.store.set('look', look);
 }
 applyLook();
@@ -90,6 +97,7 @@ async function openModel(id, name) {
   S.modelId = id; S.modelName = name;
   platform.store.set('lastModel', id);
   $('#title').textContent = name;
+  setAvatar($('#titleAvatar'), id, name);
   try {
     status('Reading package…');
     const pkg = await platform.openPackage(id);
@@ -267,9 +275,13 @@ viewer.onBeforeRender.push((dt) => {
   pose.updateMarkers();
 });
 
+function setIcon(btn, name) { btn.replaceChildren(icon(name)); }
 function updatePlayer() {
   const fps = S.clip?.userData.fps ?? 30;
-  $('#btnPlay').textContent = S.playing && !pose.active ? '⏸' : '▶';
+  const want = S.playing && !pose.active ? 'pause' : 'play';
+  if ($('#btnPlay').dataset.ic !== want) { setIcon($('#btnPlay'), want); $('#btnPlay').dataset.ic = want; }
+  const nm = S.animPath ? S.animPath.split('/').pop().replace(/\.ueanim$/i, '') : '—';
+  if ($('#animName').textContent !== nm) $('#animName').textContent = nm;
   if (!S.duration) return;
   $('#timeline').value = String(Math.round((S.time / S.duration) * 1000));
   $('#frameLabel').textContent = `${Math.round(S.time * fps)}/${Math.round(S.duration * fps)}`;
@@ -284,20 +296,66 @@ $('#timeline').oninput = (e) => { S.playing = false; S.bindPose = false; pose.se
 $('#btnLoop').onclick = (e) => { S.loop = !S.loop; e.currentTarget.setAttribute('aria-pressed', String(S.loop)); };
 $('#speed').onchange = (e) => { S.speed = +e.target.value; };
 
+// previous / next animation (arrows, or swipe sideways on the animation name)
+function animSequence() {
+  if (!S.cat) return [];
+  const groups = describeAnims(S.cat.charAnims.filter((p) => !/RibbonAnim/i.test(p)), S.cat.roleDir);
+  const all = groups.flatMap((g) => g.items);
+  const inMode = all.filter((it) => S.mode === 'all' || (S.mode === 'fight') === it.fight).map((it) => it.path);
+  return inMode.includes(S.animPath) || !inMode.length ? (inMode.length ? inMode : all.map((it) => it.path)) : inMode;
+}
+async function stepAnim(dir) {
+  const list = animSequence(); if (!list.length) return;
+  const i = list.indexOf(S.animPath);
+  const next = list[(i < 0 ? 0 : i + dir + list.length) % list.length];
+  const lab = $('#animName');
+  lab.classList.add(dir > 0 ? 'swipe-l' : 'swipe-r');
+  await playAnim(next);
+  lab.classList.remove('swipe-l', 'swipe-r');
+}
+$('#btnPrevAnim').onclick = () => stepAnim(-1);
+$('#btnNextAnim').onclick = () => stepAnim(1);
+{
+  let sx = null;
+  const bar = $('#animBar');
+  bar.addEventListener('pointerdown', (e) => { if (!e.target.closest('button')) sx = { x: e.clientX, y: e.clientY }; });
+  bar.addEventListener('pointerup', (e) => {
+    if (!sx) return;
+    const dx = e.clientX - sx.x, dy = e.clientY - sx.y; sx = null;
+    if (Math.abs(dx) > 36 && Math.abs(dx) > Math.abs(dy)) stepAnim(dx < 0 ? 1 : -1);
+  });
+  bar.addEventListener('pointercancel', () => { sx = null; });
+}
+function gestureHint(text) {
+  const g = $('#gestureHint'); g.textContent = text; g.hidden = false;
+  g.style.animation = 'none'; void g.offsetWidth; g.style.animation = '';
+  clearTimeout(gestureHint.t); gestureHint.t = setTimeout(() => (g.hidden = true), 1100);
+}
+
 // ---------------------------------------------------------------- picking (tap on the model)
 const raycaster = new THREE.Raycaster();
 let down = null;
 viewer.canvas.addEventListener('pointerdown', (e) => { down = { x: e.clientX, y: e.clientY, t: performance.now() }; });
+let lastTap = null, tapTimer = null;
 viewer.canvas.addEventListener('pointerup', (e) => {
   if (!down) return;
   const moved = Math.hypot(e.clientX - down.x, e.clientY - down.y), dt = performance.now() - down.t;
   down = null;
   if (moved > 8 || dt > 500) return;
+  const now = performance.now();
+  const dbl = lastTap && now - lastTap.t < 320 && Math.hypot(e.clientX - lastTap.x, e.clientY - lastTap.y) < 40;
+  lastTap = dbl ? null : { t: now, x: e.clientX, y: e.clientY };
   const r = viewer.canvas.getBoundingClientRect();
   const ndc = new THREE.Vector2(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
   raycaster.setFromCamera(ndc, viewer.camera);
   if (pose.active && pose.pick(raycaster)) return;
-  if (S.cutMode) cutAt(raycaster);
+  if (S.cutMode) { cutAt(raycaster); return; }
+  if (dbl) {
+    clearTimeout(tapTimer);
+    if (S.rig) gestureHint(viewer.toggleFaceFrame() === 'face' ? 'Face' : 'Full body');
+    return;
+  }
+  if (photo.on) { clearTimeout(tapTimer); tapTimer = setTimeout(() => document.body.classList.toggle('photo-bare'), 330); }
 });
 
 function visibleMeshes() {
@@ -460,6 +518,20 @@ function renderAnimTab(body) {
 }
 
 // ---- Pose
+// Undo every manual bone edit: back to the animation's pose at the current frame.
+function resetPose() {
+  if (!S.rig) return;
+  if (pose.active) pose.pushUndo();
+  S.bindPose = false;
+  S.rig.resetToBind();
+  S.mixer?.setTime(S.time);
+  for (const x of S.extras) if (x.rig?.group.visible) x.mixer.setTime(S.time);
+  springs.reset();
+  S.rig.group.updateMatrixWorld(true);
+  updatePlayer();
+  toast('Pose reset');
+}
+const resetBtn = (label, onclick) => h('button', { class: 'btn reset-btn', onclick }, icon('reset'), label);
 function renderPoseTab(body) {
   body.append(h('h3', {}, 'Pose tool'));
   body.append(toggle('Edit pose (freezes the animation)', pose.active, (v) => {
@@ -498,6 +570,7 @@ function renderPoseTab(body) {
     rawSearch.oninput = fillRaw; fillRaw();
     body.append(h('details', {}, h('summary', {}, `All bones (${S.rig.bones.length})`), h('div', { class: 'inner' }, rawSearch, rawList)));
   }
+  body.append(resetBtn('Reset pose', () => { resetPose(); renderTab(); }));
   body.append(h('h3', {}, 'Poses'));
   body.append(h('div', { class: 'grid3' },
     h('button', { class: 'btn', onclick: () => {
@@ -511,7 +584,7 @@ function renderPoseTab(body) {
         const p = JSON.parse(await f.text());
         pose.setActive(true); S.playing = false;
         const unknown = pose.apply(p);
-        toast(unknown.length ? `Pose applied (${unknown.length} bones don’t exist on this model)` : (p.character && p.character !== S.modelName ? `Pose applied (made for ${p.character})` : 'Pose aplicada'));
+        toast(unknown.length ? `Pose applied (${unknown.length} bones don’t exist on this model)` : (p.character && p.character !== S.modelName ? `Pose applied (made for ${p.character})` : 'Pose applied'));
         renderTab();
       } catch (e) { toast('Invalid pose file'); }
     } }, 'Import'),
@@ -522,6 +595,7 @@ function renderPoseTab(body) {
   body.append(slider('Stiffness', { min: 0.02, max: 0.6, value: springs.stiffness, onInput: (v) => (springs.stiffness = v) }));
   body.append(slider('Gravity', { min: 0, max: 1.5, value: springs.gravity, onInput: (v) => (springs.gravity = v) }));
   body.append(slider('Damping', { min: 0.02, max: 0.6, value: springs.damping, onInput: (v) => (springs.damping = v) }));
+  body.append(resetBtn('Reset physics', () => { Object.assign(springs, SPRING_DEFAULTS); springs.reset(); renderTab(); }));
 }
 function savedPoses() {
   const key = 'poses.' + S.modelId;
@@ -677,6 +751,7 @@ function renderFaceTab(body) {
 
 // ---- Lights
 function renderLightsTab(body) {
+  body.append(resetBtn('Reset lights', () => { viewer.setLights(LIGHT_PRESETS['Studio']()); viewer.markers.visible = false; S.openLight = null; saveLights(); renderTab(); toast('Lights reset'); }));
   body.append(h('div', { class: 'chips', style: { flexWrap: 'nowrap', overflowX: 'auto' } }, Object.keys(LIGHT_PRESETS).map((n) => h('button', { class: 'chip', style: { flex: 'none' }, onclick: () => { viewer.setLights(LIGHT_PRESETS[n]()); S.openLight = null; saveLights(); renderTab(); } }, n))));
   body.append(h('div', { class: 'row' },
     h('select', { class: 'full', style: { flex: '1' }, onchange: (e) => {
@@ -684,7 +759,7 @@ function renderLightsTab(body) {
       const L = newLight(t, { name: `${LIGHT_TYPES[t]} ${viewer.lights.filter((x) => x.type === t).length + 1}`, azimuth: Math.round(Math.random() * 360) });
       viewer.lights.push(L); S.openLight = L.id; viewer.rebuildLights(); saveLights(); renderTab();
     } }, h('option', { value: '' }, '＋ Add light…'), Object.entries(LIGHT_TYPES).map(([t, l]) => h('option', { value: t }, l))),
-    h('button', { class: 'ic' + (viewer.markers.visible ? ' on' : ''), title: 'Show light positions', style: { height: '38px' }, onclick: () => { viewer.markers.visible = !viewer.markers.visible; renderTab(); } }, '◎')));
+    h('button', { class: 'ic' + (viewer.markers.visible ? ' on' : ''), title: 'Show light positions', style: { height: '38px' }, onclick: () => { viewer.markers.visible = !viewer.markers.visible; renderTab(); } }, icon('sparkle'))));
   viewer.lights.forEach((L, i) => {
     const upd = () => { viewer.updateLights(); saveLights(); };
     const open = S.openLight === L.id;
@@ -729,6 +804,8 @@ function renderSceneTab(body) {
   body.append(h('h3', {}, 'Background'));
   body.append(h('div', { class: 'chips' }, BG_PRESETS.map((p) => h('button', { class: 'chip small', onclick: () => { viewer.setBackground(p); saveBg(); renderTab(); } },
     h('span', { style: { display: 'inline-block', width: '12px', height: '12px', borderRadius: '3px', marginRight: '5px', background: p.type === 'gradient' ? `linear-gradient(${p.top},${p.bottom})` : p.color } }), p.name))));
+  body.append(h('div', { class: 'chips', style: { flexWrap: 'nowrap', overflowX: 'auto' } }, Object.keys(SCENES).map((n) => h('button', { class: 'chip small' + (bg.type === 'scene' && bg.scene === n ? ' on' : ''), style: { flex: 'none' }, onclick: () => { viewer.setBackground({ type: 'scene', scene: n }); saveBg(); renderTab(); } },
+    h('span', { style: { display: 'inline-block', width: '14px', height: '14px', borderRadius: '4px', marginRight: '6px', verticalAlign: '-2px', background: `url(${sceneThumb(n)}) center/cover` } }), n))));
   body.append(chips([['gradient', 'Gradient'], ['color', 'Color'], ['image', 'Image'], ['transparent', 'Transparent']], bg.type, async (v) => {
     if (v === 'image') {
       const f = await platform.pickFile('image/*'); if (!f) return;
@@ -746,7 +823,7 @@ function renderSceneTab(body) {
   if (viewer.floorMode === 'disc') body.append(h('div', { class: 'row' }, h('label', {}, 'Platform color'), h('input', { type: 'color', value: viewer.floorColor, oninput: (e) => viewer.setFloor('disc', e.target.value) })));
   body.append(h('h3', {}, 'Camera'));
   body.append(h('div', { class: 'grid3' }, [['front', 'Front'], ['threeq', '3/4'], ['left', 'Side'], ['back', 'Back'], ['top', 'Top'], ['low', 'Low angle'], ['face', 'Face']].map(([k, l]) =>
-    h('button', { class: 'btn', onclick: () => viewer.viewPreset(k) }, l))));
+    h('button', { class: 'btn', onclick: () => viewer.viewPreset(k, true) }, l))));
   body.append(slider('Field of view', { min: 10, max: 75, step: 1, value: look.fov, onInput: (v) => { look.fov = v; applyLook(); }, fmt: (v) => `${Math.round(v)}°` }));
   body.append(toggle('Auto-rotate', viewer.controls.autoRotate, (v) => { viewer.controls.autoRotate = v; }));
   body.append(slider('Rotation speed', { min: -10, max: 10, step: 0.5, value: viewer.controls.autoRotateSpeed, onInput: (v) => (viewer.controls.autoRotateSpeed = v), fmt: (v) => (+v).toFixed(1) }));
@@ -764,6 +841,7 @@ function renderSceneTab(body) {
       await music.load(f); toast('Music: ' + music.name); renderTab(); } }, music.name ? '🔄 Change' : '🎵 Pick audio'),
     music.name ? h('button', { class: 'btn', onclick: async () => { await music.remove(); renderTab(); } }, '🗑 Remove') : null));
   body.append(h('h3', {}, 'Screenshot'));
+  body.append(h('button', { class: 'btn wide', style: { marginBottom: '6px' }, onclick: () => enterPhoto() }, icon('camera'), 'Photo mode (framing, timer, backgrounds)'));
   body.append(h('div', { class: 'grid3' },
     h('button', { class: 'btn', onclick: () => shot({}) }, '📷 Normal'),
     h('button', { class: 'btn', onclick: () => shot({ scale: 2 }) }, '📷 High (2×)'),
@@ -776,12 +854,15 @@ function shot(opts) {
   pose.gizmoHelper.visible = helperVis; pose.markers.visible = pose.active;
   platform.saveFile(`${(S.modelName || 'screenshot').replace(/[\\/:*?"<>|]/g, '_')}-${Date.now()}.png`, url, 'image/png');
 }
-$('#btnShot').onclick = () => shot({ scale: 1.5 });
-$('#btnResetView').onclick = () => viewer.viewPreset('front');
-$('#btnHideUi').onclick = () => document.body.classList.toggle('ui-hidden');
+$('#btnResetView').onclick = () => viewer.viewPreset('front', true);
+$('#btnHideUi').onclick = () => { const on = document.body.classList.toggle('ui-hidden'); setIcon($('#btnHideUi'), on ? 'eyeOff' : 'eye'); };
+$('#btnPhoto').onclick = () => enterPhoto();
+$('#titlePill').onclick = () => openLibrary();
 
 // ---- Look
 function renderLookTab(body) {
+  body.append(h('h3', {}, 'Interface'));
+  body.append(toggle('Reduce transparency (faster on older phones)', !!look.solid, (v) => { look.solid = v; applyLook(); }));
   body.append(h('h3', {}, 'Outline'));
   body.append(toggle('Show outline', look.outlineOn, (v) => { look.outlineOn = v; applyLook(); }));
   body.append(slider('Outline width', { min: 0, max: 4, value: look.outline, onInput: (v) => { look.outline = v; applyLook(); } }));
@@ -797,33 +878,172 @@ function renderLookTab(body) {
   body.append(slider('Render scale', { min: 0.5, max: 3, step: 0.25, value: look.renderScale, onInput: (v) => { look.renderScale = v; viewer.setRenderScale(v); applyLook(); }, fmt: (v) => `${(+v).toFixed(2)}×` }));
   body.append(h('div', { class: 'row' }, h('label', {}, 'Texture quality'), h('select', { class: 'full', style: { flex: '1' }, onchange: (e) => { look.texSize = +e.target.value; applyLook(); toast('Applies next time you open the model'); } },
     [[512, 'Low (512)'], [1024, 'Medium (1024)'], [2048, 'High (2048)'], [4096, 'Maximum']].map(([v, l]) => h('option', { value: String(v), selected: v === look.texSize }, l)))));
+  body.append(resetBtn('Reset look', () => { const keep = { renderScale: look.renderScale, texSize: look.texSize, solid: look.solid }; Object.assign(look, LOOK_DEFAULTS, keep); applyLook(); renderTab(); }));
 }
 
-// ---------------------------------------------------------------- library
+// ---------------------------------------------------------------- library (portrait cards)
+// Per-model extras kept on the device: { [modelId]: { charId, icon (data: URL), element } }
+const libInfo = platform.store.get('libInfo', {});
+const saveLibInfo = () => platform.store.set('libInfo', libInfo);
+const EL_COLORS = { Glacio: '#5aa9e6', Fusion: '#e5603f', Electro: '#9b6ad8', Aero: '#3fc59a', Spectro: '#d9b545', Havoc: '#b2457d' };
+const mb = (b) => b >= 1073741824 ? `${(b / 1073741824).toFixed(1)} GB` : `${Math.max(0, Math.round((b ?? 0) / 1048576))} MB`;
+const norm = (s) => String(s).toLowerCase().normalize('NFD').replace(/[^a-z0-9]/g, '');
+// The roster entry a library model belongs to (downloads are named "Name" or "Name · Variant"; imports after the zip)
+function rosterMatch(m) {
+  const info = libInfo[m.id];
+  if (info?.charId && roster) return roster.find((r) => r.id === info.charId) ?? null;
+  if (!roster) return null;
+  const n = norm(m.name);
+  return roster.filter((r) => norm(r.name) && n.startsWith(norm(r.name))).sort((a, b) => b.name.length - a.name.length)[0] ?? null;
+}
+// Keep a small copy of the portrait so the library looks right offline.
+async function portraitData(url) {
+  try {
+    const r = await fetch(url); if (!r.ok) throw new Error();
+    const bmp = await createImageBitmap(await r.blob());
+    const c = document.createElement('canvas'); c.width = c.height = 160;
+    c.getContext('2d').drawImage(bmp, 0, 0, 160, 160);
+    return c.toDataURL('image/png');
+  } catch { return url; }
+}
+async function rememberCharacter(modelId, r) {
+  if (!r) return;
+  libInfo[modelId] = { charId: r.id, element: r.element, icon: await portraitData(r.icon) };
+  saveLibInfo();
+}
+function setAvatar(el, id, name) {
+  const icon = libInfo[id]?.icon;
+  el.style.backgroundImage = icon ? `url("${icon}")` : '';
+  el.textContent = icon ? '' : (name || '?').trim().charAt(0).toUpperCase();
+}
+function portrait(m, cls = '') {
+  const info = libInfo[m.id];
+  return info?.icon ? h('img', { src: info.icon, alt: '', class: cls, loading: 'lazy' }) : h('div', { class: 'initial ' + cls }, (m.name || '?').trim().charAt(0).toUpperCase());
+}
+function popMenu(anchor, items) {
+  const r = anchor.getBoundingClientRect();
+  const scrim = h('div', { class: 'scrim', onclick: () => close() });
+  const menu = h('div', { class: 'popmenu glass' }, items.map(([ic, label, fn, cls]) => h('button', { class: cls ?? '', onclick: () => { close(); fn(); } }, icon(ic), label)));
+  const close = () => { scrim.remove(); menu.remove(); popMenu.close = null; };
+  document.body.append(scrim, menu);
+  const mw = menu.offsetWidth, mh = menu.offsetHeight;
+  menu.style.left = `${Math.max(8, Math.min(innerWidth - mw - 8, r.right - mw))}px`;
+  menu.style.top = `${r.bottom + mh + 8 > innerHeight ? Math.max(8, r.top - mh - 6) : r.bottom + 6}px`;
+  popMenu.close = close;
+}
+let libModels = [];
 async function openLibrary() {
   $('#library').hidden = false;
-  const list = await platform.listModels();
-  const ul = $('#modelList');
-  ul.replaceChildren();
-  if (!list.length) ul.append(h('li', {}, h('div', { class: 'grow' }, h('div', { class: 'name' }, 'No models yet'), h('div', { class: 'sub' }, 'Tap “Download characters” and pick one.'))));
-  for (const m of list) {
-    ul.append(h('li', {},
-      h('div', { class: 'grow', onclick: () => openModel(m.id, m.name) },
-        h('div', { class: 'name' }, m.name),
-        h('div', { class: 'sub' }, `${m.files ?? '?'} files · ${((m.size ?? 0) / 1048576).toFixed(0)} MB`)),
-      h('button', { class: 'btn', onclick: () => openModel(m.id, m.name) }, 'Open'),
-      platform.canManage ? h('button', { class: 'btn', onclick: async () => { const n = prompt('New name', m.name); if (n) { await platform.renameModel(m.id, n); openLibrary(); } } }, '✎') : null,
-      platform.canManage ? h('button', { class: 'btn danger', onclick: async () => { if (confirm(`Delete ${m.name}?`)) { await platform.deleteModel(m.id); platform.store.set('model.' + m.id, null); openLibrary(); } } }, '🗑') : null));
+  libModels = await platform.listModels();
+  renderLibrary();
+  updateStorageSummary();
+  // older downloads/imports have no portrait yet: look them up once the character list is reachable
+  if (libModels.some((m) => !libInfo[m.id]) && !roster) {
+    try { roster = await fetchRoster(); } catch { return; }
+    let changed = false;
+    for (const m of libModels) if (!libInfo[m.id]) { const r = rosterMatch(m); if (r) { await rememberCharacter(m.id, r); changed = true; } }
+    if (changed && !$('#library').hidden) renderLibrary();
+    if (changed && S.modelId) setAvatar($('#titleAvatar'), S.modelId, S.modelName);
   }
+}
+function renderLibrary() {
+  const grid = $('#modelGrid');
+  grid.replaceChildren();
+  if (!libModels.length) {
+    grid.append(h('div', { class: 'empty-card glass' }, h('b', {}, 'No characters yet'), h('p', { class: 'hint' }, platform.canDownload ? 'Tap “Download characters” and pick one.' : 'Import a .zip from encore.moe’s 3D viewer (“Download .zip”).')));
+    return;
+  }
+  for (const m of libModels) {
+    const info = libInfo[m.id];
+    const card = h('div', { class: 'mcard' + (m.id === S.modelId ? ' current' : ''), style: { '--el': EL_COLORS[info?.element] ?? '#5d6890' }, onclick: () => openModel(m.id, m.name) },
+      h('div', { class: 'bgglow' }),
+      portrait(m),
+      h('div', { class: 'info glass' }, h('b', {}, m.name), h('span', { class: 'sub' }, `${info?.element ? info.element + ' · ' : ''}${mb(m.size)}`)));
+    if (platform.canManage) {
+      const more = h('button', { class: 'icon glass menu', title: 'More', onclick: (e) => {
+        e.stopPropagation();
+        popMenu(more, [
+          ['edit', 'Rename', async () => { const n = prompt('New name', m.name); if (n) { await platform.renameModel(m.id, n); if (m.id === S.modelId) { S.modelName = n; $('#title').textContent = n; } openLibrary(); } }],
+          ['storage', 'Storage', () => openStorage()],
+          ['trash', 'Delete', () => deleteModelAsk(m), 'danger'],
+        ]);
+      } }, icon('more'));
+      card.append(more);
+    }
+    grid.append(card);
+  }
+}
+async function deleteModelAsk(m) {
+  if (!confirm(`Delete ${m.name}? This frees ${mb(m.size)}.`)) return false;
+  await platform.deleteModel(m.id);
+  platform.store.set('model.' + m.id, null);
+  delete libInfo[m.id]; saveLibInfo();
+  if (m.id === S.modelId) { disposeModel(); S.modelId = null; S.modelName = ''; $('#title').textContent = '3D Viewer'; setAvatar($('#titleAvatar'), null, ''); }
+  await openLibrary();
+  return true;
+}
+async function updateStorageSummary() {
+  const total = libModels.reduce((n, m) => n + (m.size ?? 0), 0);
+  const info = await platform.storageInfo();
+  $('#storageSummary').textContent = `${libModels.length} character${libModels.length === 1 ? '' : 's'} · ${mb(total)} used${info.free != null ? ` · ${mb(info.free)} free` : ''}`;
 }
 function closeLibrary() { $('#library').hidden = true; }
 $('#btnLibrary').onclick = openLibrary;
 $('#btnCloseLibrary').onclick = closeLibrary;
 $('#btnImport').onclick = () => platform.importZip();
 $('#btnStore').onclick = () => openStore();
+$('#btnStorage').onclick = () => openStorage();
+
+// ---------------------------------------------------------------- storage view
+async function openStorage() {
+  $('#store').hidden = false;
+  storeView = 'storage';
+  $('#storeTitle').textContent = 'Storage';
+  const body = $('#storeBody');
+  const models = await platform.listModels();
+  const info = await platform.storageInfo();
+  const used = models.reduce((n, m) => n + (m.size ?? 0), 0);
+  const cap = info.free != null ? used + info.free : null;
+  body.replaceChildren(
+    h('div', { class: 'store-total glass' },
+      h('div', { class: 'sub' }, 'Characters on this device'),
+      h('div', { class: 'big' }, mb(used)),
+      cap ? h('div', { class: 'meter', style: { margin: '10px 0 6px' } }, h('div', { style: { width: `${Math.max(2, Math.min(100, used * 100 / cap))}%` } })) : null,
+      h('div', { class: 'sub' }, info.free != null ? `${mb(info.free)} free for the app` : '')),
+    h('p', { class: 'hint' }, 'Combat animations (attacks, skills, movement) are usually the biggest part of a character. Deleting them keeps menu poses, idles and gestures.'));
+  if (!models.length) body.append(h('p', { class: 'hint' }, 'No characters stored yet.'));
+  const CATS = [['fight', 'Combat animations', '#ff8a92'], ['anim', 'Other animations', '#ffd08a'], ['tex', 'Textures', '#8fe3d8'], ['mesh', 'Models', '#9bb0ff'], ['other', 'Other', '#9aa2b8']];
+  for (const m of models) {
+    const row = h('div', { class: 'store-row glass' },
+      h('div', { class: 'top' }, portrait(m), h('div', { class: 'grow' }, h('b', {}, m.name), h('div', { class: 'sub' }, `${mb(m.size)} · ${m.files ?? '?'} files`))),
+      h('p', { class: 'hint' }, 'Calculating…'));
+    body.append(row);
+    platform.fileSizes(m.id).then((sizes) => {
+      const by = Object.fromEntries(CATS.map(([k]) => [k, { n: 0, paths: [] }]));
+      for (const [p, n] of Object.entries(sizes)) {
+        const k = isFightAnim(p) ? 'fight' : /\.ueanim$/i.test(p) ? 'anim' : /\.png$/i.test(p) ? 'tex' : /\.uemodel$/i.test(p) ? 'mesh' : 'other';
+        by[k].n += n; by[k].paths.push(p);
+      }
+      const tot = Object.values(by).reduce((a, b) => a + b.n, 0) || 1;
+      row.lastChild.replaceWith(
+        h('div', { class: 'split' }, CATS.map(([k, , c]) => h('i', { style: { width: `${by[k].n * 100 / tot}%`, background: c } }))),
+        h('div', { class: 'legend' }, CATS.filter(([k]) => by[k].n > 0).map(([k, l, c]) => h('span', { style: { '--c': c } }, `${l} ${mb(by[k].n)}`))),
+        h('div', { class: 'acts' },
+          by.fight.paths.length ? h('button', { class: 'btn', onclick: async (e) => {
+            if (!confirm(`Delete ${by.fight.paths.length} combat animations of ${m.name}? This frees ${mb(by.fight.n)}. Menu poses and idles stay.`)) return;
+            e.currentTarget.disabled = true; e.currentTarget.textContent = 'Deleting…';
+            await platform.deleteFiles(m.id, by.fight.paths);
+            toast(`Freed ${mb(by.fight.n)}`);
+            if (m.id === S.modelId) await openModel(m.id, m.name).then(() => { $('#store').hidden = false; });
+            openStorage();
+          } }, icon('trash'), `Combat animations (${mb(by.fight.n)})`) : h('span', { class: 'hint' }, 'No combat animations stored'),
+          h('button', { class: 'btn danger', onclick: async () => { if (await deleteModelAsk(m)) openStorage(); } }, icon('trash'), 'Delete')));
+    }).catch((e) => { row.lastChild.textContent = 'Could not read sizes: ' + e.message; });
+  }
+}
 
 // ---------------------------------------------------------------- encore.moe downloads
-let roster = null, storeView = 'list', storeFilter = '', downloading = false;
+let roster = null, storeView = 'list', storeFilter = '', storeEl = '', downloading = false;
 async function openStore() {
   $('#store').hidden = false;
   storeView = 'list';
@@ -841,7 +1061,7 @@ function renderRelaySetup(err) {
   $('#storeBody').replaceChildren(
     h('p', { class: 'hint' }, 'encore.moe only lets its own website download model files, so this version of the app downloads them through a small relay. Paste the relay address once and downloads work from then on.'),
     input,
-    h('button', { class: 'primary', onclick: async () => {
+    h('button', { class: 'primary', style: { marginTop: '10px' }, onclick: async () => {
       const url = input.value.trim().replace(/\/+$/, '');
       if (!/^https:\/\/\S+$/.test(url)) { msg.textContent = 'Enter an address starting with https://'; return; }
       msg.textContent = 'Checking…';
@@ -862,16 +1082,23 @@ async function renderStoreList() {
     body.replaceChildren(h('p', { class: 'hint' }, 'Loading the character list…'));
     try { roster = await fetchRoster(); } catch (e) { body.replaceChildren(h('p', { class: 'hint' }, 'Could not reach encore.moe: ' + e.message), h('button', { class: 'btn', onclick: () => renderStoreList() }, 'Retry')); return; }
   }
+  libModels = await platform.listModels();
+  const have = new Set(libModels.map((m) => rosterMatch(m)?.id).filter((x) => x != null));
   const grid = h('div', { class: 'roster' });
   const fill = () => {
     const f = storeFilter.trim().toLowerCase();
-    grid.replaceChildren(...roster.filter((r) => !f || r.name.toLowerCase().includes(f) || r.element.toLowerCase().includes(f)).map((r) =>
+    grid.replaceChildren(...roster.filter((r) => (!f || r.name.toLowerCase().includes(f)) && (!storeEl || (storeEl === 'have' ? have.has(r.id) : r.element === storeEl))).map((r) =>
       h('button', { class: 'q' + r.quality, onclick: () => renderStoreDetail(r) },
+        have.has(r.id) ? h('span', { class: 'badge', title: 'Downloaded' }, icon('check')) : null,
         h('img', { src: r.icon, loading: 'lazy', alt: '' }), h('span', {}, r.name), h('span', { class: 'el' }, `${r.element}${r.weapon ? ' · ' + r.weapon : ''}`))));
   };
-  const search = h('input', { type: 'search', placeholder: 'Search by name or element…', value: storeFilter, oninput: (e) => { storeFilter = e.target.value; fill(); } });
-  fill();
-  body.replaceChildren(search, grid);
+  const search = h('input', { type: 'search', placeholder: 'Search by name…', value: storeFilter, oninput: (e) => { storeFilter = e.target.value; fill(); } });
+  const els = [...new Set(roster.map((r) => r.element).filter(Boolean))];
+  const filters = h('div', { class: 'chips', style: { flexWrap: 'nowrap', overflowX: 'auto' } });
+  const drawFilters = () => filters.replaceChildren(...[['', 'All'], ['have', `Downloaded (${have.size})`], ...els.map((e) => [e, e])].map(([v, l]) =>
+    h('button', { class: 'chip small', style: { flex: 'none' }, 'aria-pressed': String(storeEl === v), onclick: () => { storeEl = v; drawFilters(); fill(); } }, l)));
+  drawFilters(); fill();
+  body.replaceChildren(search, filters, grid);
 }
 async function renderStoreDetail(r) {
   storeView = 'detail';
@@ -883,25 +1110,28 @@ async function renderStoreDetail(r) {
   if (!ch.variants.length) { body.replaceChildren(h('p', { class: 'hint' }, 'This character has no 3D model on encore.moe yet.')); return; }
   const weapons = ch.equips.filter((e) => e.kind === 'weapon');
   const props = ch.equips.filter((e) => e.kind === 'prop');
+  const owned = libModels.filter((m) => rosterMatch(m)?.id === r.id);
   // same default as encore.moe's viewer: the character's signature weapon
   let variant = 0, weapon = weapons.some((w) => w.id === ch.initWeapon) ? ch.initWeapon : null;
   const draw = () => {
     const v = ch.variants[variant];
     body.replaceChildren(
-      h('div', { class: 'detail-head' }, h('img', { src: r.icon, alt: '' }), h('div', {}, h('h2', {}, ch.name), h('div', { class: 'hint' }, `${r.element} · ${r.weapon}`))),
-      h('button', { class: 'primary', onclick: () => startDownload(ch, variant, weapon) }, '⬇ Download'),
+      h('div', { class: 'detail-head' }, h('img', { src: r.icon, alt: '' }), h('div', {}, h('h2', {}, ch.name), h('div', { class: 'hint' }, `${r.element} · ${r.weapon}`),
+        owned.length ? h('span', { class: 'tagline' }, icon('check'), `Downloaded: ${owned.map((m) => m.name).join(', ')}`) : null)),
+      owned.length ? h('button', { class: 'btn wide', style: { marginBottom: '8px' }, onclick: () => { $('#store').hidden = true; openModel(owned[0].id, owned[0].name); } }, 'Open ' + owned[0].name) : null,
+      h('button', { class: 'primary', onclick: () => startDownload(ch, variant, weapon, r) }, icon('download'), owned.length ? 'Download again' : 'Download'),
       h('h3', {}, 'Model'),
       chips(ch.variants.map((x, i) => [i, `${x.name}${x.kind === 'morph' ? ' (form)' : ''}`]), variant, (i) => { variant = i; draw(); }),
       h('p', { class: 'hint' }, `${v.anims.length} animations${v.parts.length ? ` · ${v.parts.length} extra part(s)` : ''} · ${props.length} animation prop(s)`),
       h('h3', {}, 'Weapon'),
       h('select', { class: 'full', onchange: (e) => { weapon = e.target.value === '' ? null : +e.target.value; } },
         h('option', { value: '' }, 'No weapon'), weapons.map((w) => h('option', { value: String(w.id), selected: w.id === weapon }, `${w.name}${w.anims.length ? ` (${w.anims.length} anim.)` : ''}`))),
-      h('p', { class: 'hint' }, 'A character is usually 100–300 MB. Use Wi‑Fi if you can. Once downloaded it works offline.'),
+      h('p', { class: 'hint' }, 'A character is usually 100–300 MB. Use Wi‑Fi if you can. Once downloaded it works offline. You can delete its combat animations later in Library › Storage.'),
     );
   };
   draw();
 }
-async function startDownload(ch, variant, weapon) {
+async function startDownload(ch, variant, weapon, r) {
   downloading = true;
   const body = $('#storeBody');
   const bar = h('div', { class: 'bar' }, h('div'));
@@ -911,13 +1141,14 @@ async function startDownload(ch, variant, weapon) {
   try { wake = await navigator.wakeLock?.request('screen'); } catch { /* optional */ }
   try {
     const res = await downloadCharacter(ch, variant, weapon, (pct, msg) => { bar.firstChild.style.width = pct + '%'; label.textContent = `${pct}% · ${msg}`; });
+    await rememberCharacter(res.id, r);
     downloading = false;
     $('#store').hidden = true;
     toast(`${res.name} downloaded`);
     openModel(res.id, res.name);
   } catch (e) {
     downloading = false;
-    body.replaceChildren(h('p', { class: 'hint' }, 'The download failed: ' + e.message), h('button', { class: 'btn', onclick: () => renderStoreDetail(roster.find((x) => x.id === ch.id)) }, 'Back'));
+    body.replaceChildren(h('p', { class: 'hint' }, 'The download failed: ' + e.message), h('button', { class: 'btn', onclick: () => renderStoreDetail(r) }, 'Back'));
   } finally { wake?.release?.().catch(() => {}); }
 }
 platform.onImportProgress((pct, msg) => {
@@ -932,10 +1163,79 @@ platform.onImportDone((r) => {
 });
 platform.onFileSaved((msg) => toast(msg));
 
+// ---------------------------------------------------------------- photo mode
+const photo = { on: false, ratio: platform.store.get('photoRatio', '9:16'), timer: platform.store.get('photoTimer', 0) };
+const RATIOS = [['full', 'Full'], ['9:16', '9:16'], ['4:5', '4:5'], ['1:1', '1:1']];
+const PHOTO_BGS = [
+  ...Object.keys(SCENES).map((n) => ({ name: n, bg: { type: 'scene', scene: n }, thumb: () => `url(${sceneThumb(n)})` })),
+  ...BG_PRESETS.filter((p) => ['Studio', 'Menu', 'Black', 'White', 'Green screen'].includes(p.name)).map((p) => ({ name: p.name, bg: p, thumb: () => p.type === 'gradient' ? `linear-gradient(${p.top},${p.bottom})` : p.color })),
+  { name: 'Transparent', bg: { type: 'transparent' }, thumb: () => 'repeating-conic-gradient(#888 0% 25%, #ddd 0% 50%) 0 0 / 12px 12px' },
+];
+const ratioValue = () => (photo.ratio === 'full' ? null : (([a, b]) => a / b)(photo.ratio.split(':').map(Number)));
+function layoutFrame() {
+  const a = ratioValue(), W = innerWidth, H = innerHeight;
+  $('#frameMask').classList.toggle('full', !a);
+  const hole = $('#frameHole');
+  if (!a) { hole.style.width = W + 'px'; hole.style.height = H + 'px'; return; }
+  const w = W / H > a ? H * a : W, hh = W / H > a ? H : W / a;
+  hole.style.width = `${w}px`; hole.style.height = `${hh}px`;
+}
+function drawPhotoControls() {
+  $('#ratioSeg').replaceChildren(...RATIOS.map(([v, l]) => h('button', { class: photo.ratio === v ? 'on' : '', onclick: () => { photo.ratio = v; platform.store.set('photoRatio', v); layoutFrame(); drawPhotoControls(); } }, l)));
+  $('#timerLabel').textContent = photo.timer ? `${photo.timer}s` : '';
+  $('#btnTimer').classList.toggle('on', !!photo.timer);
+  const cur = viewer.bg;
+  $('#bgStrip').replaceChildren(...PHOTO_BGS.map((b) => {
+    const on = b.bg.type === cur.type && (b.bg.type === 'scene' ? b.bg.scene === cur.scene : b.bg.type === 'transparent' || (b.bg.type === 'color' ? b.bg.color === cur.color : b.bg.top === cur.top && b.bg.bottom === cur.bottom));
+    return h('button', { class: on ? 'on' : '', onclick: () => { viewer.setBackground({ ...b.bg }); platform.store.set('bg', { ...viewer.bg, image: null }); drawPhotoControls(); } }, h('i', { style: { background: b.thumb() } }), b.name);
+  }));
+}
+function enterPhoto() {
+  if (photo.on) return;
+  photo.on = true;
+  photo.markers = pose.markers.visible; pose.markers.visible = false;
+  photo.gizmo = pose.gizmoHelper.visible; pose.gizmoHelper.visible = false;
+  setCutMode(false);
+  S.tab = null; renderTab();
+  document.body.classList.add('photo'); document.body.classList.remove('photo-bare', 'ui-hidden');
+  $('#photo').hidden = false;
+  updateInset();
+  layoutFrame(); drawPhotoControls();
+}
+function exitPhoto() {
+  if (!photo.on) return;
+  photo.on = false;
+  pose.markers.visible = photo.markers && pose.active; pose.gizmoHelper.visible = photo.gizmo && pose.active;
+  document.body.classList.remove('photo', 'photo-bare');
+  $('#photo').hidden = true;
+  updateInset();
+}
+async function takePhoto() {
+  if (photo.busy) return;
+  photo.busy = true;
+  if (photo.timer) {
+    document.body.classList.add('photo-bare');
+    const cd = $('#countdown'); cd.hidden = false;
+    for (let n = photo.timer; n > 0; n--) { cd.textContent = n; await new Promise((r) => setTimeout(r, 1000)); }
+    cd.hidden = true;
+  }
+  const url = viewer.screenshot({ scale: 2, aspect: ratioValue(), transparent: viewer.bg.type === 'transparent' });
+  const f = $('#flash'); f.hidden = false; f.style.animation = 'none'; void f.offsetWidth; f.style.animation = ''; setTimeout(() => (f.hidden = true), 380);
+  if (photo.timer) document.body.classList.remove('photo-bare');
+  platform.saveFile(`${(S.modelName || 'photo').replace(/[\\/:*?"<>|]/g, '_')}-${Date.now()}.png`, url, 'image/png');
+  photo.busy = false;
+}
+$('#btnShutter').onclick = takePhoto;
+$('#btnPhotoExit').onclick = exitPhoto;
+$('#btnTimer').onclick = () => { photo.timer = photo.timer === 0 ? 3 : photo.timer === 3 ? 10 : 0; platform.store.set('photoTimer', photo.timer); drawPhotoControls(); };
+$('#btnPhotoHide').onclick = () => { document.body.classList.add('photo-bare'); gestureHint('Tap the screen to show the controls'); };
+$('#btnPhotoFace').onclick = () => { if (S.rig) gestureHint(viewer.toggleFaceFrame() === 'face' ? 'Face' : 'Full body'); };
+addEventListener('resize', () => { if (photo.on) layoutFrame(); });
+
 // start
 if (!platform.canDownload) $('#btnStore').hidden = true;
 if (platform.isIOS && !platform.isStandalone) {
-  $('#libHint').after(h('p', { class: 'hint install' }, '📲 To install: tap ', h('b', {}, 'Share'), ' (the square with the arrow), then ', h('b', {}, 'Add to Home Screen'), '. Always open the app from that icon so your models are kept.'));
+  $('.lib-actions').after(h('p', { class: 'hint install' }, '📲 To install: tap ', h('b', {}, 'Share'), ' (the square with the arrow), then ', h('b', {}, 'Add to Home Screen'), '. Always open the app from that icon so your models are kept.'));
 }
 (async () => {
   const list = await platform.listModels();
@@ -945,14 +1245,16 @@ if (platform.isIOS && !platform.isStandalone) {
 })();
 document.addEventListener('visibilitychange', () => { if (S.modelId) platform.store.set('lastModel', S.modelId); });
 music.init();
-window.__dbg = { S, viewer, pose, springs, THREE, playAnim, renderTab, setCutMode };
+window.__dbg = { S, viewer, pose, springs, THREE, playAnim, renderTab, setCutMode, enterPhoto, exitPhoto, openStorage, openLibrary };
 // Android back button: close the open layer first
 window.__wuwaBack = () => {
+  if (popMenu.close) { popMenu.close(); return true; }
   if (!$('#store').hidden) { $('#btnStoreBack').click(); return true; }
   if (!$('#library').hidden && S.rig) { closeLibrary(); return true; }
+  if (photo.on) { if (document.body.classList.contains('photo-bare')) document.body.classList.remove('photo-bare'); else exitPhoto(); return true; }
   if (S.cutMode) { setCutMode(false); renderTab(); return true; }
   if (S.tab) { S.tab = null; renderTab(); return true; }
-  if (document.body.classList.contains('ui-hidden')) { document.body.classList.remove('ui-hidden'); return true; }
+  if (document.body.classList.contains('ui-hidden')) { $('#btnHideUi').click(); return true; }
   return false;
 };
 

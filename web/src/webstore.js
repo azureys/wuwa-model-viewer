@@ -47,6 +47,33 @@ export async function renameModel(id, name) {
   if (m) s.put({ ...m, name });
   await done(t);
 }
+// Size of every stored file of a model: { path: bytes }.
+export async function fileSizes(id) {
+  const d = await db();
+  const out = {};
+  await new Promise((res, rej) => {
+    const r = d.transaction(FILES).objectStore(FILES).openCursor(IDBKeyRange.bound(id + SEP, id + SEP + '\uffff'));
+    r.onsuccess = () => { const c = r.result; if (!c) return res(); out[c.key.slice(id.length + 1)] = c.value?.size ?? 0; c.continue(); };
+    r.onerror = () => rej(r.error);
+  });
+  return out;
+}
+// Remove some files of a model (e.g. combat animations) and update its listing and size.
+export async function deleteFiles(id, paths) {
+  const sizes = await fileSizes(id);
+  const gone = new Set(paths);
+  const d = await db();
+  const t = d.transaction([MODELS, FILES], 'readwrite');
+  const fs = t.objectStore(FILES), ms = t.objectStore(MODELS);
+  for (const p of gone) fs.delete(fileKey(id, p));
+  const m = await req(ms.get(id));
+  if (m) {
+    const list = m.list.filter((p) => !gone.has(p));
+    const size = list.reduce((n, p) => n + (sizes[p] ?? 0), 0);
+    ms.put({ ...m, list, files: list.length, size });
+  }
+  await done(t);
+}
 async function uniqueId(name) {
   let id = name.replace(/[^A-Za-z0-9._ -]/g, '_').trim() || 'model';
   if (await getMeta(id)) id = `${id}-${Math.floor(Date.now() / 1000)}`;

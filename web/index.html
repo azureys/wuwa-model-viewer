@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
 <title>WuWa Viewer</title>
-<meta name="theme-color" content="#0e1016">
+<meta name="theme-color" content="#0b0d14">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -22,61 +22,94 @@
   <canvas id="view"></canvas>
 
   <header id="topbar">
-    <button class="icon" id="btnLibrary" title="Library">☰</button>
-    <div id="title">3D Viewer</div>
-    <button class="icon" id="btnResetView" title="Reset camera">⟲</button>
-    <button class="icon" id="btnShot" title="Screenshot">📷</button>
-    <button class="icon" id="btnHideUi" title="Hide interface">👁</button>
+    <button class="icon glass" id="btnLibrary" title="Library"><i data-icon="grid"></i></button>
+    <button class="glass" id="titlePill" title="Library"><span id="titleAvatar"></span><span id="title">3D Viewer</span></button>
+    <div class="tb-right">
+      <button class="icon glass" id="btnResetView" title="Reset camera"><i data-icon="recenter"></i></button>
+      <button class="icon glass" id="btnPhoto" title="Photo mode"><i data-icon="camera"></i></button>
+      <button class="icon glass" id="btnHideUi" title="Hide interface"><i data-icon="eye"></i></button>
+    </div>
   </header>
 
-  <div id="status" hidden><div class="spinner"></div><span id="statusText"></span></div>
-  <div id="toast" hidden></div>
-  <div id="pickHint" hidden></div>
+  <div id="status" class="glass" hidden><div class="spinner"></div><span id="statusText"></span></div>
+  <div id="toast" class="glass" hidden></div>
+  <div id="pickHint" class="glass" hidden></div>
+  <div id="gestureHint" hidden></div>
 
-  <div id="player" hidden>
-    <button class="icon" id="btnPlay">⏸</button>
-    <input type="range" id="timeline" min="0" max="1000" value="0" step="1">
-    <span id="frameLabel">0/0</span>
-    <button class="chip small" id="btnLoop" aria-pressed="true">🔁</button>
-    <select id="speed">
-      <option value="0.1">0.1×</option><option value="0.25">0.25×</option><option value="0.5">0.5×</option>
-      <option value="1" selected>1×</option><option value="1.5">1.5×</option><option value="2">2×</option>
-    </select>
+  <div id="player" class="glass" hidden>
+    <div id="animBar">
+      <button class="ghost" id="btnPrevAnim" title="Previous animation"><i data-icon="prev"></i></button>
+      <div id="animName" title="Swipe to change animation">—</div>
+      <button class="ghost" id="btnNextAnim" title="Next animation"><i data-icon="next"></i></button>
+    </div>
+    <div id="playRow">
+      <button class="ghost round" id="btnPlay"><i data-icon="pause"></i></button>
+      <input type="range" id="timeline" min="0" max="1000" value="0" step="1">
+      <span id="frameLabel">0/0</span>
+      <button class="ghost tog" id="btnLoop" aria-pressed="true" title="Loop"><i data-icon="loop"></i></button>
+      <select id="speed" title="Speed">
+        <option value="0.1">0.1×</option><option value="0.25">0.25×</option><option value="0.5">0.5×</option>
+        <option value="1" selected>1×</option><option value="1.5">1.5×</option><option value="2">2×</option>
+      </select>
+    </div>
   </div>
 
-  <section id="sheet" hidden>
+  <section id="sheet" class="glass" hidden>
     <div class="sheet-grip" id="grip"><div class="sz"><button data-sz="peek" title="Low">▁</button><button data-sz="half" title="Medium">▄</button><button data-sz="full" title="Tall">█</button></div></div>
     <div id="sheetBody"></div>
   </section>
 
-  <nav id="tabs">
-    <button data-tab="anim"><span>🎬</span>Animation</button>
-    <button data-tab="pose"><span>🦴</span>Pose</button>
-    <button data-tab="parts"><span>👗</span>Clothes</button>
-    <button data-tab="equip"><span>⚔️</span>Gear</button>
-    <button data-tab="face"><span>🙂</span>Face</button>
-    <button data-tab="lights"><span>💡</span>Lights</button>
-    <button data-tab="scene"><span>🖼️</span>Scene</button>
-    <button data-tab="look"><span>🎨</span>Look</button>
+  <nav id="tabs" class="glass">
+    <button data-tab="anim"><i data-icon="film"></i><b>Animation</b></button>
+    <button data-tab="pose"><i data-icon="pose"></i><b>Pose</b></button>
+    <button data-tab="parts"><i data-icon="shirt"></i><b>Clothes</b></button>
+    <button data-tab="equip"><i data-icon="sword"></i><b>Gear</b></button>
+    <button data-tab="face"><i data-icon="face"></i><b>Face</b></button>
+    <button data-tab="lights"><i data-icon="bulb"></i><b>Lights</b></button>
+    <button data-tab="scene"><i data-icon="image"></i><b>Scene</b></button>
+    <button data-tab="look"><i data-icon="palette"></i><b>Look</b></button>
   </nav>
+
+  <!-- photo mode -->
+  <div id="photo" hidden>
+    <div id="frameMask"><div id="frameHole"></div></div>
+    <div id="countdown" hidden></div>
+    <div id="photoTop">
+      <button class="icon glass" id="btnPhotoExit" title="Exit photo mode"><i data-icon="close"></i></button>
+      <div class="glass seg" id="ratioSeg"></div>
+      <button class="icon glass" id="btnTimer" title="Timer"><i data-icon="timer"></i><span id="timerLabel"></span></button>
+    </div>
+    <div id="photoBottom" class="glass">
+      <div id="bgStrip"></div>
+      <div class="shutter-row">
+        <button class="icon ghost" id="btnPhotoFace" title="Frame face / full body"><i data-icon="user"></i></button>
+        <button id="btnShutter" title="Take photo"><span></span></button>
+        <button class="icon ghost" id="btnPhotoHide" title="Hide controls (tap the screen to bring them back)"><i data-icon="eyeOff"></i></button>
+      </div>
+    </div>
+  </div>
+  <div id="flash" hidden></div>
 
   <div id="library" hidden>
     <div class="lib-head">
       <h1>Library</h1>
-      <button class="icon" id="btnCloseLibrary">✕</button>
+      <button class="icon glass" id="btnCloseLibrary" title="Close"><i data-icon="close"></i></button>
     </div>
-    <p class="hint" id="libHint">Pick a character to download it from encore.moe, or import a <b>.zip</b> from its 3D viewer (“Download .zip”). Everything is stored on your phone and works offline.</p>
-    <button class="primary" id="btnStore">⬇ Download characters</button>
-    <button class="btn wide" id="btnImport">＋ Import .zip</button>
+    <p class="hint" id="libHint">Your characters are stored on this device and work offline.</p>
+    <div class="lib-actions">
+      <button class="primary" id="btnStore"><i data-icon="download"></i> Download characters</button>
+      <button class="btn glass" id="btnImport"><i data-icon="plus"></i> Import .zip</button>
+    </div>
     <div id="importProgress" hidden><div class="bar"><div></div></div><span></span></div>
-    <ul id="modelList"></ul>
+    <div id="modelGrid"></div>
+    <button class="glass card storage-card" id="btnStorage"><i data-icon="storage"></i><span class="grow"><b>Storage</b><span class="sub" id="storageSummary">Tap to see how much space each character uses</span></span><i data-icon="next"></i></button>
   </div>
 </div>
   <div id="store" hidden>
     <div class="lib-head">
-      <button class="icon" id="btnStoreBack">←</button>
+      <button class="icon glass" id="btnStoreBack" title="Back"><i data-icon="back"></i></button>
       <h1 id="storeTitle">encore.moe</h1>
-      <button class="icon" id="btnStoreClose">✕</button>
+      <button class="icon glass" id="btnStoreClose" title="Close"><i data-icon="close"></i></button>
     </div>
     <div id="storeBody"></div>
   </div>
