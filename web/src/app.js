@@ -6,7 +6,7 @@ import { loadAnim, buildClip, sampleCurve, describeAnims, ribbonFor, ribbonTrack
 import { toonGlobals } from './toon.js';
 import { PoseTool, SpringBones, BODY_PARTS, FINGER_PARTS } from './pose.js';
 import * as platform from './platform.js';
-import { music } from './music.js';
+import { initMusic } from './music.js';
 import { fetchRoster, fetchCharacter, downloadCharacter } from './encore.js';
 import { icon, hydrateIcons } from './icons.js';
 import { SCENES, sceneThumb } from './backgrounds.js';
@@ -58,7 +58,8 @@ new ResizeObserver(() => updateInset()).observe($('#sheet'));
 const viewer = new Viewer($('#view'));
 const S = {
   modelId: null, modelName: '', pkg: null, cat: null,
-  rig: null, mixer: null, extras: [],   // extras: weapon / prop rigs { kind, entry, rig, mixer, bone, mode, anims }
+  rig: null, mixer: null, extras: [],   // weapons / props: { kind, entry, pieces: [{ path, name, bone, rig, mixer }], visible, loaded }
+  weapon: null, usesWeapon: false,      // the weapon picked in the top bar; whether the current animation holds one
   animPath: null, clip: null, ribbonPath: null, time: 0, duration: 0, playing: true, loop: true, speed: 1,
   inPlace: false, animFace: true, autoRibbon: true, mode: 'menu', animFilter: '',
   morphValues: new Map(), morphFilter: '', curves: [],
@@ -111,8 +112,9 @@ async function openModel(id, name) {
     S.mixer = new THREE.AnimationMixer(rig.space);
     pose.setRig(rig); springs.setRig(rig);
     // props sharing the body skeleton are skinned to it; others get their own rig
-    for (const p of S.cat.props) S.extras.push({ kind: 'prop', entry: p, rig: null, mixer: null, bone: 'Root', mode: 'auto', loaded: false });
-    for (const w of S.cat.weapons) S.extras.push({ kind: 'weapon', entry: w, rig: null, mixer: null, bone: 'WeaponProp01', scabBone: 'WeaponProp02', mode: 'off', loaded: false });
+    for (const p of S.cat.props) S.extras.push({ kind: 'prop', entry: p, pieces: [{ path: p.path, name: p.name, bone: 'Root' }], visible: false, loaded: false });
+    for (const w of S.cat.weapons) S.extras.push({ kind: 'weapon', entry: w, pieces: w.pieces.map((p, i) => ({ ...p, bone: weaponBone(w, i) })), visible: false, loaded: false });
+    setupWeaponPicker();
     rig.group.updateMatrixWorld(true);
     const box = new THREE.Box3();
     for (const s of rig.models[0].meshes) { s.geometry.computeBoundingBox(); }
@@ -135,12 +137,13 @@ async function openModel(id, name) {
 
 function disposeModel() {
   S.mixer?.stopAllAction();
-  for (const x of S.extras) { x.mixer?.stopAllAction(); x.rig?.dispose(); }
+  for (const x of S.extras) for (const p of x.pieces) { p.mixer?.stopAllAction(); p.rig?.dispose(); }
   S.rig?.dispose();
-  S.rig = null; S.mixer = null; S.extras = []; S.animPath = null; S.clip = null; S.curves = [];
+  S.rig = null; S.mixer = null; S.extras = []; S.weapon = null; S.animPath = null; S.clip = null; S.curves = [];
   S.morphValues.clear(); pose.setRig(null); pose.setActive(false); springs.setRig(null);
   clearTextureCache();
   $('#player').hidden = true;
+  $('#weaponPill').hidden = true;
 }
 
 function defaultAnim() {
@@ -174,6 +177,7 @@ async function playAnim(path) {
       }
     }
     S.mixer.clipAction(clip).play();
+    S.usesWeapon = holdsWeapon(path);
     S.time = 0;
     springs.reset();
     await syncExtras();
@@ -186,60 +190,88 @@ async function playAnim(path) {
   } catch (e) { status(null); toast('Could not load the animation: ' + e.message, 5000); }
 }
 
-// weapons/props follow the current body animation when they have one with the same name
+// Animations that use the weapon: combat, the battle stance (Stand2, StandChange) and the weapon menu poses.
+function holdsWeapon(path) {
+  const name = path.split('/').pop().replace(/\.ueanim$/i, '');
+  return isFightAnim(path) || /weapon|^(AM_)?Stand(2|Change)/i.test(name);
+}
+
+// Props appear with their own animation (same name as the body's); the chosen weapon appears in
+// every animation that uses a weapon, and follows its own animation when it has one.
 async function syncExtras() {
   const base = S.animPath?.split('/').pop().toLowerCase();
   for (const x of S.extras) {
     const match = base ? x.entry.anims.find((a) => a.split('/').pop().toLowerCase() === base) : null;
-    x.activeAnim = match ?? null;
-    const want = x.mode === 'on' || (x.mode === 'auto' && match);
+    const want = x.kind === 'weapon' ? x === S.weapon && (S.usesWeapon || !!match) : !!match;
     if (want && !x.loaded) await loadExtra(x);
-    if (x.rig) {
-      x.rig.group.visible = !!want;
-      x.mixer.stopAllAction();
-      if (match && want) {
-        const clip = buildClip(x.rig, await loadAnim(S.pkg, match));
-        x.mixer.clipAction(clip).play();
-      } else x.rig.resetToBind();
+    x.visible = want;
+    const anim = match && want ? await loadAnim(S.pkg, match) : null;
+    for (const p of x.pieces) {
+      if (!p.rig) continue;
+      p.rig.group.visible = want;
+      p.mixer.stopAllAction();
+      if (anim) p.mixer.clipAction(buildClip(p.rig, anim)).play();
+      else p.rig.resetToBind();
     }
   }
 }
 
+// Socket of each weapon piece: two-piece weapons (gauntlets, pistols, sword + scabbard) use the right
+// then the left hand socket; rectifiers float on WeaponProp07; anything else goes in the right hand.
+function weaponBone(w, i) {
+  if (w.pieces.length > 1) return ['WeaponProp02', 'WeaponProp01'][i] ?? 'WeaponProp01';
+  return /^Device$/i.test(w.type) ? 'WeaponProp07' : 'WeaponProp02';
+}
+
 async function loadExtra(x) {
   status(`Loading ${x.entry.name}…`);
-  const rig = new Rig(x.entry.name);
-  // attached rigs live in the parent bone's space: no unit conversion
-  rig.space.rotation.set(0, 0, 0); rig.space.scale.setScalar(1);
-  await rig.addModel(S.pkg, x.entry.path, { label: x.entry.name });
-  if (x.entry.scabbard) {
-    const sc = new Rig(x.entry.scabbard.name);
-    sc.space.rotation.set(0, 0, 0); sc.space.scale.setScalar(1);
-    await sc.addModel(S.pkg, x.entry.scabbard.path, { label: 'Scabbard' });
-    x.scabbard = sc;
+  for (const p of x.pieces) {
+    const rig = new Rig(p.name);
+    // attached rigs live in the parent bone's space: no unit conversion
+    rig.space.rotation.set(0, 0, 0); rig.space.scale.setScalar(1);
+    await rig.addModel(S.pkg, p.path, { label: p.name });
+    p.rig = rig;
+    p.mixer = new THREE.AnimationMixer(rig.space);
+    const parent = S.rig.findBone(p.bone) ?? S.rig.findBone('WeaponProp01') ?? S.rig.bones[0];
+    parent.add(rig.group);
+    rig.finalizeSkeleton();
   }
-  x.rig = rig;
-  x.mixer = new THREE.AnimationMixer(rig.space);
   x.loaded = true;
-  attachExtra(x);
   status(null);
 }
-function attachExtra(x) {
-  if (!x.rig || !S.rig) return;
-  const parent = S.rig.findBone(x.bone) ?? S.rig.sockets.get(x.bone) ?? S.rig.bones[0];
-  parent.add(x.rig.group);
-  x.rig.finalizeSkeleton();
-  if (x.scabbard) {
-    const p2 = S.rig.findBone(x.scabBone) ?? parent;
-    p2.add(x.scabbard.group);
-    x.scabbard.group.visible = x.rig.group.visible && x.showScabbard !== false;
-    x.scabbard.finalizeSkeleton();
-  }
+
+// ---- Weapon picker (top bar, next to the character name)
+const WEAPON_TYPES = { Sword: 'Sword', Knife: 'Broadblade', Gun: 'Pistols', Knuckles: 'Gauntlets', Device: 'Rectifier' };
+const weaponLabel = (w) => { // Weapon/Knuckles/R5Knuckles504 → "Gauntlets 504"
+  const num = /(\d+)$/.exec(w.entry.name)?.[1];
+  return num ? `${WEAPON_TYPES[w.entry.type] ?? w.entry.type} ${num}` : w.entry.name;
+};
+function showWeaponName() {
+  $('#weaponName').textContent = S.weapon ? weaponLabel(S.weapon) : 'No weapon';
+  $('#weaponPill').classList.toggle('off', !S.weapon);
 }
+function setupWeaponPicker() {
+  const weapons = S.extras.filter((x) => x.kind === 'weapon');
+  const saved = platform.store.get(prefsKey(), null)?.weapon;
+  S.weapon = saved === null ? null : weapons.find((w) => w.entry.name === saved) ?? weapons[0] ?? null;
+  $('#weaponPill').hidden = !weapons.length;
+  $('#weaponSelect').replaceChildren(h('option', { value: '' }, 'No weapon'),
+    ...weapons.map((w, i) => h('option', { value: String(i), selected: w === S.weapon }, weaponLabel(w))));
+  showWeaponName();
+}
+$('#weaponSelect').onchange = async (e) => {
+  const weapons = S.extras.filter((x) => x.kind === 'weapon');
+  S.weapon = weapons[+e.target.value] ?? null;
+  showWeaponName();
+  saveModelPrefs();
+  await syncExtras();
+  setTime(S.time);
+};
 
 function setTime(t) {
   S.time = t;
   S.mixer?.setTime(t);
-  for (const x of S.extras) if (x.rig?.group.visible) x.mixer.setTime(t);
+  for (const x of S.extras) if (x.visible) for (const p of x.pieces) p.mixer?.setTime(t);
 }
 
 function applyMorphs() {
@@ -360,7 +392,7 @@ viewer.canvas.addEventListener('pointerup', (e) => {
 
 function visibleMeshes() {
   const out = [];
-  const rigs = [S.rig, ...S.extras.flatMap((x) => [x.rig, x.scabbard])].filter(Boolean);
+  const rigs = [S.rig, ...S.extras.flatMap((x) => x.pieces.map((p) => p.rig))].filter(Boolean);
   for (const rig of rigs) for (const { model, section } of rig.allSections()) if (section.mesh.visible && rig.group.visible !== false) out.push({ rig, model, section });
   return out;
 }
@@ -391,7 +423,7 @@ function saveModelPrefs() {
   for (const { model, section } of S.rig.allSections()) {
     sections[model.file + '|' + section.name] = { v: section.visible, h: [...section.hidden] };
   }
-  platform.store.set(prefsKey(), { sections, models: S.rig.models.map((m) => m.visible) });
+  platform.store.set(prefsKey(), { sections, models: S.rig.models.map((m) => m.visible), weapon: S.weapon ? S.weapon.entry.name : null });
 }
 function restoreModelPrefs() {
   const p = platform.store.get(prefsKey(), null); if (!p) return;
@@ -453,7 +485,7 @@ document.addEventListener('pointerdown', (e) => {
 
 // ---------------------------------------------------------------- tabs
 const tabs = {
-  anim: renderAnimTab, pose: renderPoseTab, parts: renderPartsTab, equip: renderEquipTab,
+  anim: renderAnimTab, pose: renderPoseTab, parts: renderPartsTab,
   face: renderFaceTab, lights: renderLightsTab, scene: renderSceneTab, look: renderLookTab,
 };
 document.querySelectorAll('#tabs button').forEach((b) => b.addEventListener('click', () => {
@@ -525,7 +557,7 @@ function resetPose() {
   S.bindPose = false;
   S.rig.resetToBind();
   S.mixer?.setTime(S.time);
-  for (const x of S.extras) if (x.rig?.group.visible) x.mixer.setTime(S.time);
+  for (const x of S.extras) if (x.visible) for (const p of x.pieces) p.mixer?.setTime(S.time);
   springs.reset();
   S.rig.group.updateMatrixWorld(true);
   updatePlayer();
@@ -663,62 +695,6 @@ function flashIsland(s, i) {
   const iv = setInterval(() => { setIslandHidden(s, i, n % 2 === 0 ? !was : was); if (++n >= 6) { clearInterval(iv); setIslandHidden(s, i, was); } }, 220);
 }
 
-// ---- Equipment: weapons & props
-function renderEquipTab(body) {
-  const boneOptions = () => {
-    const names = ['Root', 'WeaponProp01', 'WeaponProp02', 'WeaponProp03', 'WeaponProp04', 'WeaponProp05', 'WeaponProp06', 'WeaponProp07', 'Bip001RHand', 'Bip001LHand', 'Bip001Spine2', 'Bip001Pelvis', 'Bip001Head', 'HuluProp01', ...S.rig.sockets.keys()];
-    return [...new Set(names)].filter((n) => S.rig.findBone(n) || S.rig.sockets.get(n));
-  };
-  const weapons = S.extras.filter((x) => x.kind === 'weapon');
-  const props = S.extras.filter((x) => x.kind === 'prop');
-  body.append(h('h3', {}, 'Weapon'));
-  if (!weapons.length) body.append(h('p', { class: 'hint' }, 'This model has no weapons. Download it again and pick a weapon.'));
-  else {
-    const current = weapons.find((w) => w.mode === 'on');
-    const sel = h('select', { class: 'full', onchange: async (e) => {
-      for (const w of weapons) { w.mode = 'off'; if (w.rig) w.rig.group.visible = false; if (w.scabbard) w.scabbard.group.visible = false; }
-      const w = weapons[+e.target.value];
-      if (w) { w.mode = 'on'; if (!w.loaded) await loadExtra(w); w.rig.group.visible = true; if (w.scabbard) w.scabbard.group.visible = w.showScabbard !== false; await syncExtras(); }
-      renderTab();
-    } }, h('option', { value: '-1' }, 'No weapon'), weapons.map((w, i) => h('option', { value: String(i), selected: w === current }, w.entry.name.replace(/Md\d+$/, ''))));
-    body.append(sel);
-    if (current) {
-      body.append(boneRow('Weapon hand / bone', current.bone, boneOptions(), (v) => { current.bone = v; attachExtra(current); }));
-      if (current.scabbard) {
-        body.append(boneRow('Scabbard bone', current.scabBone, boneOptions(), (v) => { current.scabBone = v; attachExtra(current); }));
-        body.append(toggle('Show scabbard', current.showScabbard !== false, (v) => { current.showScabbard = v; current.scabbard.group.visible = v; }));
-      }
-      body.append(offsetControls(current));
-    }
-  }
-  body.append(h('h3', {}, 'Animation props'));
-  if (!props.length) body.append(h('p', { class: 'hint' }, 'No props in this package.'));
-  for (const x of props) {
-    body.append(h('div', { class: 'card' },
-      h('div', { class: 'head' }, h('span', { class: 'grow' }, prettyProp(x.entry.name)), h('span', { class: 'sub' }, `${x.entry.anims.length} anim.`)),
-      chips([['auto', 'With its animation'], ['on', 'Always'], ['off', 'Never']], x.mode, async (v) => { x.mode = v; await syncExtras(); renderTab(); }),
-      boneRow('Attached to', x.bone, boneOptions(), (v) => { x.bone = v; attachExtra(x); }),
-      x.entry.anims.length ? h('p', { class: 'hint' }, 'Used in: ' + x.entry.anims.map((a) => a.split('/').pop().replace('.ueanim', '')).join(', ')) : null,
-    ));
-  }
-}
-const prettyProp = (n) => n.replace(/Md\d+$/, '').replace(/^E(?=[A-Z])/i, '').replace(/^([a-z])/, (c) => c.toUpperCase());
-function boneRow(label, value, options, onChange) {
-  return h('div', { class: 'row' }, h('label', {}, label), h('select', { class: 'full', style: { flex: '2' }, onchange: (e) => onChange(e.target.value) },
-    options.map((o) => h('option', { value: o, selected: o === value }, o))));
-}
-function offsetControls(x) {
-  const g = x.rig.group;
-  const d = h('details', {}, h('summary', {}, 'Fine position adjust'));
-  const inner = h('div', { class: 'inner' });
-  const axes = ['x', 'y', 'z'];
-  axes.forEach((a) => inner.append(slider(`Move ${a.toUpperCase()}`, { min: -30, max: 30, step: 0.1, value: g.position[a], onInput: (v) => (g.position[a] = v), fmt: (v) => (+v).toFixed(1) })));
-  axes.forEach((a) => inner.append(slider(`Rotate ${a.toUpperCase()}`, { min: -180, max: 180, step: 1, value: THREE.MathUtils.radToDeg(g.rotation[a]), onInput: (v) => (g.rotation[a] = THREE.MathUtils.degToRad(v)), fmt: (v) => `${Math.round(v)}°` })));
-  inner.append(h('button', { class: 'btn', onclick: () => { g.position.set(0, 0, 0); g.rotation.set(0, 0, 0); renderTab(); } }, 'Reset adjustment'));
-  d.append(inner);
-  return d;
-}
-
 // ---- Face / morph targets
 function renderFaceTab(body) {
   body.append(h('h3', {}, 'Expressions (morphs)'));
@@ -827,19 +803,6 @@ function renderSceneTab(body) {
   body.append(slider('Field of view', { min: 10, max: 75, step: 1, value: look.fov, onInput: (v) => { look.fov = v; applyLook(); }, fmt: (v) => `${Math.round(v)}°` }));
   body.append(toggle('Auto-rotate', viewer.controls.autoRotate, (v) => { viewer.controls.autoRotate = v; }));
   body.append(slider('Rotation speed', { min: -10, max: 10, step: 0.5, value: viewer.controls.autoRotateSpeed, onInput: (v) => (viewer.controls.autoRotateSpeed = v), fmt: (v) => (+v).toFixed(1) }));
-  body.append(h('h3', {}, 'Background music'));
-  if (music.name) {
-    body.append(h('div', { class: 'lrow' },
-      h('span', { class: 'name' }, '🎵 ' + music.name),
-      sw(music.enabled, (v) => { music.setEnabled(v); })));
-    body.append(slider('Volume', { min: 0, max: 1, step: 0.01, value: music.volume, onInput: (v) => music.setVolume(v), fmt: (v) => `${Math.round(v * 100)}%` }));
-  } else body.append(h('p', { class: 'hint' }, 'Pick an audio file from your phone (for example the character menu theme). It loops while you use the viewer.'));
-  body.append(h('div', { class: 'grid3' },
-    h('button', { class: 'btn', onclick: async () => { // iOS greys out audio files in Files when the picker filters by audio type: pick any file and check it here
-      const f = await platform.pickFile(platform.isIOS ? '' : 'audio/*'); if (!f) return;
-      if (!/^audio\//.test(f.type) && !/\.(mp3|m4a|aac|wav|ogg|oga|opus|flac|aif|aiff|caf|webm)$/i.test(f.name)) { toast('That file is not audio'); return; }
-      await music.load(f); toast('Music: ' + music.name); renderTab(); } }, music.name ? '🔄 Change' : '🎵 Pick audio'),
-    music.name ? h('button', { class: 'btn', onclick: async () => { await music.remove(); renderTab(); } }, '🗑 Remove') : null));
   body.append(h('h3', {}, 'Screenshot'));
   body.append(h('button', { class: 'btn wide', style: { marginBottom: '6px' }, onclick: () => enterPhoto() }, icon('camera'), 'Photo mode (framing, timer, backgrounds)'));
   body.append(h('div', { class: 'grid3' },
@@ -1244,7 +1207,7 @@ if (platform.isIOS && !platform.isStandalone) {
   if (m) openModel(m.id, m.name); else openLibrary();
 })();
 document.addEventListener('visibilitychange', () => { if (S.modelId) platform.store.set('lastModel', S.modelId); });
-music.init();
+initMusic();
 window.__dbg = { S, viewer, pose, springs, THREE, playAnim, renderTab, setCutMode, enterPhoto, exitPhoto, openStorage, openLibrary };
 // Android back button: close the open layer first
 window.__wuwaBack = () => {

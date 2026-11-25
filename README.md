@@ -7,14 +7,14 @@ import a `.zip` you downloaded yourself.
 ## Features
 - Toon rendering with outlines, per-material shadow colors and rim light.
 - The package's animations (menu, gestures, combat) with ribbons and facial expressions.
-- Animation props and weapons attached to the character's bones.
+- Weapon picker in the top bar: the chosen weapon appears in every animation that uses one; animation props appear with their animation.
 - Pose tool: per-bone rotation, hand/foot IK, undo, mirror, export/import/save poses.
 - Simple physics for hair, skirts and ribbons.
 - Clothes: hide material sections, "scissors mode" to hide loose pieces by tapping them, piece list.
 - Face: every morph target, with search.
 - Lights: as many as you want (directional, point, spot, hemisphere, ambient), color, intensity, position, shadows, presets.
 - Scene: backgrounds (gradient, color, your own image, transparent), floor, camera presets, auto-rotate, PNG screenshots (also transparent).
-- Background music picked from the phone.
+- Background music: the character select theme (`web/audio/bgm.mp3`), looped seamlessly with Web Audio.
 
 ## Downloading characters
 - **Android:** the app downloads natively, straight into its storage.

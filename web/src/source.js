@@ -70,20 +70,24 @@ export class PackageSource {
     const parts = chars.filter((e) => e !== main && main && roleDir(e) === roleDir(main));
     const otherChars = chars.filter((e) => e !== main && !parts.includes(e));
 
+    // One weapon per folder ("Weapon/Knuckles/R5Knuckles504"): its pieces (right/left hand, scabbard) and animations.
     const weapons = [];
     for (const e of entries.filter((x) => x.kind === 'weapon')) {
-      if (/scabbard/i.test(e.name)) continue;
-      const key = e.dir.split('/').slice(0, -1).join('/');
-      const scab = entries.find((x) => x.kind === 'weapon' && /scabbard/i.test(x.name) && x.dir.split('/').slice(0, -1).join('/') === key);
-      weapons.push({ ...e, scabbard: scab ?? null, anims: [] });
+      const dir = e.dir.split('/').slice(0, -1).join('/');
+      let w = weapons.find((x) => x.dir === dir);
+      if (!w) weapons.push(w = { dir, name: dir.split('/').pop(), type: dir.split('/').slice(-2, -1)[0], pieces: [], anims: [] });
+      w.pieces.push({ path: e.path, name: e.name });
     }
+    // main piece first, then the left-hand piece / scabbard (same order as the weapon sockets)
+    const minor = (p) => /_L$|scabbard/i.test(p.name);
+    for (const w of weapons) w.pieces.sort((a, b) => +minor(a) - +minor(b));
     const props = entries.filter((x) => x.kind === 'prop').map((e) => ({ ...e, anims: [] }));
 
     const charAnims = [];
     for (const a of anims) {
       const p = props.find((x) => a.startsWith(x.dir + '/'));
       if (p) { p.anims.push(a); continue; }
-      const w = weapons.find((x) => a.startsWith(x.dir.split('/').slice(0, -1).join('/') + '/'));
+      const w = weapons.find((x) => a.startsWith(x.dir + '/'));
       if (w) { w.anims.push(a); continue; }
       charAnims.push(a);
     }

@@ -3,7 +3,7 @@ import http from 'node:http'; import fs from 'node:fs'; import path from 'node:p
 const [webDir, ...pkgs] = process.argv.slice(2); // pkgs: id=dir
 const models = Object.fromEntries(pkgs.map((p) => p.split('=')));
 const walk = (d, b = '') => fs.readdirSync(d, { withFileTypes: true }).flatMap((e) => e.isDirectory() ? walk(path.join(d, e.name), b + e.name + '/') : [b + e.name]);
-const types = { '.js': 'text/javascript', '.html': 'text/html', '.css': 'text/css', '.json': 'application/json', '.png': 'image/png' };
+const types = { '.js': 'text/javascript', '.html': 'text/html', '.css': 'text/css', '.json': 'application/json', '.png': 'image/png', '.mp3': 'audio/mpeg' };
 const DL = process.env.DLROOT;
 import { execFile } from 'node:child_process';
 http.createServer((req, res) => {
