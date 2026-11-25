@@ -1,35 +1,42 @@
-# Visor WuWa 3D (Android e iPhone, offline)
+# WuWa 3D Viewer (Android and iPhone, offline)
 
-Visor 3D para Android de los modelos de personajes de Wuthering Waves. No incluye ningún modelo:
-importa los `.zip` que descargas desde el visor 3D de encore.moe (botón **Download .zip**).
+3D viewer for Wuthering Waves character models. It ships no models: pick a character in the app and it
+downloads that character's files from encore.moe (the same files as encore.moe's **Download .zip**), or
+import a `.zip` you downloaded yourself.
 
-## Funciones
-- Render toon con contornos, sombras de color por material, brillos de borde.
-- Animaciones del paquete (menú, gestos, combate) con cintas (ribbon) y expresiones faciales.
-- Objetos de las animaciones (props) y armas unidos a los huesos del personaje.
-- Herramienta de pose: rotación por hueso, IK de manos y pies, deshacer, espejo, exportar/importar/guardar poses.
-- Física simple para pelo, faldas y cintas.
-- Ropa: ocultar secciones de material, «modo tijera» para ocultar piezas sueltas tocándolas, lista de piezas.
-- Cara: todos los morph targets con buscador.
-- Luces: tantas como quieras (direccional, puntual, foco, hemisférica, ambiente), color, intensidad, posición, sombras, presets.
-- Escena: fondos (degradado, color, imagen propia, transparente), suelo, cámaras predefinidas, auto-giro, capturas PNG (también transparentes).
+## Features
+- Toon rendering with outlines, per-material shadow colors and rim light.
+- The package's animations (menu, gestures, combat) with ribbons and facial expressions.
+- Animation props and weapons attached to the character's bones.
+- Pose tool: per-bone rotation, hand/foot IK, undo, mirror, export/import/save poses.
+- Simple physics for hair, skirts and ribbons.
+- Clothes: hide material sections, "scissors mode" to hide loose pieces by tapping them, piece list.
+- Face: every morph target, with search.
+- Lights: as many as you want (directional, point, spot, hemisphere, ambient), color, intensity, position, shadows, presets.
+- Scene: backgrounds (gradient, color, your own image, transparent), floor, camera presets, auto-rotate, PNG screenshots (also transparent).
+- Background music picked from the phone.
+
+## Downloading characters
+- **Android:** the app downloads natively, straight into its storage.
+- **iPhone / browser:** encore.moe's file storage only answers requests from encore.moe itself (CORS), so the web
+  version downloads through a small Cloudflare Worker relay (`worker/`, see [worker/README.md](worker/README.md)).
+  Its address is `DOWNLOAD_RELAY` in `web/src/platform.js` (or pasted once in the app). Files go to IndexedDB.
 
 ## iPhone (PWA)
-`web/` también funciona como app web instalable (PWA), publicada en GitHub Pages por `.github/workflows/pages.yml`
-en cada push a `main` que toque `web/`.
-- Safari → abrir la web → Compartir → **Añadir a pantalla de inicio**. Después funciona sin conexión.
-- Los `.zip` importados se guardan en IndexedDB del iPhone (se leen por trozos, sin cargar el zip entero en memoria).
-- `web/sw.js` guarda la app para uso offline; `node tools/gen-sw.mjs` regenera su lista de archivos y versión
-  (el workflow lo hace solo al publicar).
-- La descarga directa desde encore.moe no es posible en la web (su servidor solo permite peticiones desde encore.moe),
-  así que en iPhone se baja el `.zip` en Safari y se importa.
+`web/` also works as an installable web app (PWA), published to GitHub Pages by `.github/workflows/pages.yml`
+on every push to `main` that touches `web/`.
+- Safari → open the site → Share → **Add to Home Screen**. After that it works offline.
+- Models are stored in the iPhone's IndexedDB (imported zips are read in slices, never fully in memory).
+- `web/sw.js` caches the app for offline use; `node tools/gen-sw.mjs` regenerates its file list and version
+  (the workflow does it when publishing).
 
-## Estructura
-- `web/` — el visor (three.js, sin build). `web/src/ueformat.js` lee `.uemodel`/`.ueanim` (UEFormat).
-- `android/` — app Kotlin con WebView que sirve `web/` desde los assets y los modelos importados desde el almacenamiento interno.
-- `tools/devserver.mjs` — servidor para probar el visor en el navegador con una carpeta descomprimida (abrir con `?dev`).
+## Layout
+- `web/` — the viewer (three.js, no build step). `web/src/ueformat.js` reads `.uemodel`/`.ueanim` (UEFormat).
+- `android/` — Kotlin WebView app that serves `web/` from its assets and the downloaded models from internal storage.
+- `worker/` — download relay for the web version (Cloudflare Worker).
+- `tools/devserver.mjs` — server to try the viewer in a browser with an unzipped folder (open with `?dev`).
 
-## Compilar
+## Build
 ```
-cd android && ./gradlew assembleDebug   # requiere Android SDK (compileSdk 35)
+cd android && ./gradlew assembleDebug   # needs the Android SDK (compileSdk 35)
 ```

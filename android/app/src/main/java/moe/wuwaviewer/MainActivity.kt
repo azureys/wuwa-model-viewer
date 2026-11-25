@@ -42,7 +42,7 @@ class MainActivity : ComponentActivity() {
     private var fileCallback: ValueCallback<Array<Uri>>? = null
 
     private val pickZip = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        if (uri != null) importZip(uri) else js("__wuwa.importDone", JSONObject().put("error", "cancelado").toString())
+        if (uri != null) importZip(uri) else js("__wuwa.importDone", JSONObject().put("error", "cancelled").toString())
     }
     private val pickFile = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { res ->
         val data = res.data
@@ -153,7 +153,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun displayName(uri: Uri): String {
-        var name = "Modelo"
+        var name = "Model"
         contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { c ->
             if (c.moveToFirst()) c.getString(0)?.let { name = it }
         }
@@ -166,7 +166,7 @@ class MainActivity : ComponentActivity() {
             var target: File? = null
             try {
                 val name = displayName(uri)
-                progress(0, "Copiando $name…")
+                progress(0, "Copying $name…")
                 val total = contentResolver.openFileDescriptor(uri, "r")?.use { it.statSize } ?: -1L
                 contentResolver.openInputStream(uri)!!.use { input ->
                     tmp.outputStream().use { out ->
@@ -176,11 +176,11 @@ class MainActivity : ComponentActivity() {
                         while (true) {
                             val n = input.read(buf); if (n < 0) break
                             out.write(buf, 0, n); done += n
-                            if (total > 0) { val p = (done * 40 / total).toInt(); if (p != last) { last = p; progress(p, "Copiando $name…") } }
+                            if (total > 0) { val p = (done * 40 / total).toInt(); if (p != last) { last = p; progress(p, "Copying $name…") } }
                         }
                     }
                 }
-                var id = name.replace(Regex("[^A-Za-z0-9._ -]"), "_").trim().ifEmpty { "modelo" }
+                var id = name.replace(Regex("[^A-Za-z0-9._ -]"), "_").trim().ifEmpty { "model" }
                 if (File(modelsDir, id).exists()) id = "$id-${System.currentTimeMillis() / 1000}"
                 val dir = File(modelsDir, id).apply { mkdirs() }
                 target = dir
@@ -188,7 +188,7 @@ class MainActivity : ComponentActivity() {
                 var size = 0L
                 ZipFile(tmp).use { zip ->
                     val entries = zip.entries().toList().filter { !it.isDirectory }
-                    if (entries.none { it.name.endsWith(".uemodel", true) }) throw IOException("el .zip no contiene modelos .uemodel")
+                    if (entries.none { it.name.endsWith(".uemodel", true) }) throw IOException("the .zip contains no .uemodel models")
                     entries.forEachIndexed { i, e ->
                         val rel = e.name.replace('\\', '/').trimStart('/')
                         val out = File(dir, rel).canonicalFile
@@ -197,7 +197,7 @@ class MainActivity : ComponentActivity() {
                         zip.getInputStream(e).use { inp -> out.outputStream().use { inp.copyTo(it, 1 shl 16) } }
                         files.put(rel)
                         size += out.length()
-                        if (i % 10 == 0) progress(40 + i * 60 / entries.size, "Descomprimiendo ${i + 1}/${entries.size}")
+                        if (i % 10 == 0) progress(40 + i * 60 / entries.size, "Unpacking ${i + 1}/${entries.size}")
                     }
                 }
                 File(dir, "index.json").writeText(JSONObject().put("files", files).toString())
@@ -243,7 +243,7 @@ class MainActivity : ComponentActivity() {
         /** Reserve a folder for a model downloaded from encore.moe. */
         @JavascriptInterface
         fun newModelId(name: String): String {
-            var id = name.replace(Regex("[^A-Za-z0-9._ -]"), "_").trim().ifEmpty { "modelo" }
+            var id = name.replace(Regex("[^A-Za-z0-9._ -]"), "_").trim().ifEmpty { "model" }
             if (File(modelsDir, id).exists()) id = "$id-${System.currentTimeMillis() / 1000}"
             File(modelsDir, id).mkdirs()
             return id
@@ -263,7 +263,7 @@ class MainActivity : ComponentActivity() {
                 for (p in paths) pool.execute {
                     try {
                         val out = File(dir, p).canonicalFile
-                        if (!out.path.startsWith(dir.path + File.separator)) throw IOException("ruta no válida")
+                        if (!out.path.startsWith(dir.path + File.separator)) throw IOException("invalid path")
                         if (!out.exists()) {
                             val url = URL(base + p.split('/').joinToString("/") { Uri.encode(it) })
                             var ok = false
@@ -336,16 +336,16 @@ class MainActivity : ComponentActivity() {
                         put(MediaStore.MediaColumns.RELATIVE_PATH, where)
                     }
                     val col = if (isImage) MediaStore.Images.Media.EXTERNAL_CONTENT_URI else MediaStore.Downloads.EXTERNAL_CONTENT_URI
-                    val uri = contentResolver.insert(col, values) ?: throw IOException("no se pudo crear el archivo")
+                    val uri = contentResolver.insert(col, values) ?: throw IOException("could not create the file")
                     contentResolver.openOutputStream(uri)!!.use { it.write(bytes) }
-                    js("__wuwa.fileSaved", "Guardado en $where/$name")
+                    js("__wuwa.fileSaved", "Saved to $where/$name")
                 } else {
                     val dir = File(getExternalFilesDir(folder), "WuwaViewer").apply { mkdirs() }
                     File(dir, name).writeBytes(bytes)
-                    js("__wuwa.fileSaved", "Guardado en ${dir.path}/$name")
+                    js("__wuwa.fileSaved", "Saved to ${dir.path}/$name")
                 }
             } catch (e: Exception) {
-                js("__wuwa.fileSaved", "Error al guardar: ${e.message}")
+                js("__wuwa.fileSaved", "Could not save: ${e.message}")
             }
         }
     }

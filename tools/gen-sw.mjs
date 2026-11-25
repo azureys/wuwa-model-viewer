@@ -14,4 +14,4 @@ const swPath = path.join(web, 'sw.js');
 const sw = fs.readFileSync(swPath, 'utf8').replace(/\/\/ AUTO-BEGIN[\s\S]*?\/\/ AUTO-END/,
   `// AUTO-BEGIN\nconst VERSION = '${version}';\nconst ASSETS = ${JSON.stringify(assets, null, 1)};\n// AUTO-END`);
 fs.writeFileSync(swPath, sw);
-console.log(`sw.js: ${assets.length} archivos, versión ${version}`);
+console.log(`sw.js: ${assets.length} files, version ${version}`);

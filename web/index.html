@@ -1,14 +1,14 @@
 <!doctype html>
-<html lang="es">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
-<title>Visor WuWa</title>
+<title>WuWa Viewer</title>
 <meta name="theme-color" content="#0e1016">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="Visor WuWa">
+<meta name="apple-mobile-web-app-title" content="WuWa Viewer">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icons/icon-192.png" type="image/png">
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
@@ -22,11 +22,11 @@
   <canvas id="view"></canvas>
 
   <header id="topbar">
-    <button class="icon" id="btnLibrary" title="Biblioteca">☰</button>
-    <div id="title">Visor 3D</div>
-    <button class="icon" id="btnResetView" title="Reiniciar cámara">⟲</button>
-    <button class="icon" id="btnShot" title="Captura">📷</button>
-    <button class="icon" id="btnHideUi" title="Ocultar interfaz">👁</button>
+    <button class="icon" id="btnLibrary" title="Library">☰</button>
+    <div id="title">3D Viewer</div>
+    <button class="icon" id="btnResetView" title="Reset camera">⟲</button>
+    <button class="icon" id="btnShot" title="Screenshot">📷</button>
+    <button class="icon" id="btnHideUi" title="Hide interface">👁</button>
   </header>
 
   <div id="status" hidden><div class="spinner"></div><span id="statusText"></span></div>
@@ -45,29 +45,29 @@
   </div>
 
   <section id="sheet" hidden>
-    <div class="sheet-grip" id="grip"><div class="sz"><button data-sz="peek" title="Bajo">▁</button><button data-sz="half" title="Medio">▄</button><button data-sz="full" title="Alto">█</button></div></div>
+    <div class="sheet-grip" id="grip"><div class="sz"><button data-sz="peek" title="Low">▁</button><button data-sz="half" title="Medium">▄</button><button data-sz="full" title="Tall">█</button></div></div>
     <div id="sheetBody"></div>
   </section>
 
   <nav id="tabs">
-    <button data-tab="anim"><span>🎬</span>Animación</button>
+    <button data-tab="anim"><span>🎬</span>Animation</button>
     <button data-tab="pose"><span>🦴</span>Pose</button>
-    <button data-tab="parts"><span>👗</span>Ropa</button>
-    <button data-tab="equip"><span>⚔️</span>Equipo</button>
-    <button data-tab="face"><span>🙂</span>Cara</button>
-    <button data-tab="lights"><span>💡</span>Luces</button>
-    <button data-tab="scene"><span>🖼️</span>Escena</button>
-    <button data-tab="look"><span>🎨</span>Aspecto</button>
+    <button data-tab="parts"><span>👗</span>Clothes</button>
+    <button data-tab="equip"><span>⚔️</span>Gear</button>
+    <button data-tab="face"><span>🙂</span>Face</button>
+    <button data-tab="lights"><span>💡</span>Lights</button>
+    <button data-tab="scene"><span>🖼️</span>Scene</button>
+    <button data-tab="look"><span>🎨</span>Look</button>
   </nav>
 
   <div id="library" hidden>
     <div class="lib-head">
-      <h1>Biblioteca</h1>
+      <h1>Library</h1>
       <button class="icon" id="btnCloseLibrary">✕</button>
     </div>
-    <p class="hint" id="libHint">Descarga personajes directamente de encore.moe o importa un <b>.zip</b> bajado de su visor 3D («Download .zip»). Todo se guarda en el móvil y funciona sin conexión.</p>
-    <button class="primary" id="btnStore">⬇ Descargar de encore.moe</button>
-    <button class="btn wide" id="btnImport">＋ Importar .zip del móvil</button>
+    <p class="hint" id="libHint">Pick a character to download it from encore.moe, or import a <b>.zip</b> from its 3D viewer (“Download .zip”). Everything is stored on your phone and works offline.</p>
+    <button class="primary" id="btnStore">⬇ Download characters</button>
+    <button class="btn wide" id="btnImport">＋ Import .zip</button>
     <div id="importProgress" hidden><div class="bar"><div></div></div><span></span></div>
     <ul id="modelList"></ul>
   </div>

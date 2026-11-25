@@ -4,24 +4,24 @@ import * as THREE from 'three';
 import { TransformControls } from 'three/addons/TransformControls.js';
 
 export const BODY_PARTS = [
-  { label: 'Cabeza', bone: 'Bip001Head' }, { label: 'Cuello', bone: 'Bip001Neck' },
-  { label: 'Pecho', bone: 'Bip001Spine2' }, { label: 'Torso', bone: 'Bip001Spine1' }, { label: 'Cintura', bone: 'Bip001Spine' },
-  { label: 'Cadera', bone: 'Bip001Pelvis' }, { label: 'Centro (mover)', bone: 'Bip001', move: true },
-  { label: 'Hombro I', bone: 'Bip001LClavicle' }, { label: 'Hombro D', bone: 'Bip001RClavicle' },
-  { label: 'Brazo I', bone: 'Bip001LUpperArm' }, { label: 'Brazo D', bone: 'Bip001RUpperArm' },
-  { label: 'Codo I', bone: 'Bip001LForearm' }, { label: 'Codo D', bone: 'Bip001RForearm' },
-  { label: 'Mano I', bone: 'Bip001LHand', ik: ['Bip001LUpperArm', 'Bip001LForearm'] },
-  { label: 'Mano D', bone: 'Bip001RHand', ik: ['Bip001RUpperArm', 'Bip001RForearm'] },
-  { label: 'Muslo I', bone: 'Bip001LThigh' }, { label: 'Muslo D', bone: 'Bip001RThigh' },
-  { label: 'Rodilla I', bone: 'Bip001LCalf' }, { label: 'Rodilla D', bone: 'Bip001RCalf' },
-  { label: 'Pie I', bone: 'Bip001LFoot', ik: ['Bip001LThigh', 'Bip001LCalf'] },
-  { label: 'Pie D', bone: 'Bip001RFoot', ik: ['Bip001RThigh', 'Bip001RCalf'] },
-  { label: 'Punta pie I', bone: 'Bip001LToe0' }, { label: 'Punta pie D', bone: 'Bip001RToe0' },
+  { label: 'Head', bone: 'Bip001Head' }, { label: 'Neck', bone: 'Bip001Neck' },
+  { label: 'Chest', bone: 'Bip001Spine2' }, { label: 'Torso', bone: 'Bip001Spine1' }, { label: 'Waist', bone: 'Bip001Spine' },
+  { label: 'Hips', bone: 'Bip001Pelvis' }, { label: 'Center (move)', bone: 'Bip001', move: true },
+  { label: 'Shoulder L', bone: 'Bip001LClavicle' }, { label: 'Shoulder R', bone: 'Bip001RClavicle' },
+  { label: 'Arm L', bone: 'Bip001LUpperArm' }, { label: 'Arm R', bone: 'Bip001RUpperArm' },
+  { label: 'Elbow L', bone: 'Bip001LForearm' }, { label: 'Elbow R', bone: 'Bip001RForearm' },
+  { label: 'Hand L', bone: 'Bip001LHand', ik: ['Bip001LUpperArm', 'Bip001LForearm'] },
+  { label: 'Hand R', bone: 'Bip001RHand', ik: ['Bip001RUpperArm', 'Bip001RForearm'] },
+  { label: 'Thigh L', bone: 'Bip001LThigh' }, { label: 'Thigh R', bone: 'Bip001RThigh' },
+  { label: 'Knee L', bone: 'Bip001LCalf' }, { label: 'Knee R', bone: 'Bip001RCalf' },
+  { label: 'Foot L', bone: 'Bip001LFoot', ik: ['Bip001LThigh', 'Bip001LCalf'] },
+  { label: 'Foot R', bone: 'Bip001RFoot', ik: ['Bip001RThigh', 'Bip001RCalf'] },
+  { label: 'Toes L', bone: 'Bip001LToe0' }, { label: 'Toes R', bone: 'Bip001RToe0' },
 ];
 export const FINGER_PARTS = ['L', 'R'].flatMap((s) => [0, 1, 2, 3, 4].flatMap((f) => [
-  { label: `${['Pulgar', 'Índice', 'Corazón', 'Anular', 'Meñique'][f]} ${s === 'L' ? 'I' : 'D'} ${1}`, bone: `Bip001${s}Finger${f}` },
-  { label: `${['Pulgar', 'Índice', 'Corazón', 'Anular', 'Meñique'][f]} ${s === 'L' ? 'I' : 'D'} ${2}`, bone: `Bip001${s}Finger${f}1` },
-  { label: `${['Pulgar', 'Índice', 'Corazón', 'Anular', 'Meñique'][f]} ${s === 'L' ? 'I' : 'D'} ${3}`, bone: `Bip001${s}Finger${f}2` },
+  { label: `${['Thumb', 'Index', 'Middle', 'Ring', 'Pinky'][f]} ${s === 'L' ? 'L' : 'R'} ${1}`, bone: `Bip001${s}Finger${f}` },
+  { label: `${['Thumb', 'Index', 'Middle', 'Ring', 'Pinky'][f]} ${s === 'L' ? 'L' : 'R'} ${2}`, bone: `Bip001${s}Finger${f}1` },
+  { label: `${['Thumb', 'Index', 'Middle', 'Ring', 'Pinky'][f]} ${s === 'L' ? 'L' : 'R'} ${3}`, bone: `Bip001${s}Finger${f}2` },
 ]));
 
 const _v1 = new THREE.Vector3(), _v2 = new THREE.Vector3(), _v3 = new THREE.Vector3(), _q1 = new THREE.Quaternion(), _q2 = new THREE.Quaternion();

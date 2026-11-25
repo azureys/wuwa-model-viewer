@@ -1,0 +1,7 @@
+{
+  "name": "wuwa-download-relay",
+  "private": true,
+  "type": "module",
+  "scripts": { "deploy": "wrangler deploy" },
+  "devDependencies": { "wrangler": "^3.0.0" }
+}

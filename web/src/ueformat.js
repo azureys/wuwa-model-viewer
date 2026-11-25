@@ -46,14 +46,14 @@ function* streamChunks(r) {
 function header(buffer, expected) {
   const view = new DataView(buffer);
   const magic = new TextDecoder().decode(new Uint8Array(buffer, 0, 8));
-  if (magic !== 'UEFORMAT') throw new Error('No es un archivo UEFormat');
+  if (magic !== 'UEFORMAT') throw new Error('Not a UEFormat file');
   const r = new Reader(view, 8);
   const ident = r.str();
-  if (ident !== expected) throw new Error(`Se esperaba ${expected} y es ${ident}`);
+  if (ident !== expected) throw new Error(`Expected ${expected} but found ${ident}`);
   const version = r.u8();
   const name = r.str();
   if (version >= CHUNKED_VERSION) r.str(); // exporter string
-  if (r.u8()) throw new Error(`${name}: archivo UEFormat comprimido (no soportado)`);
+  if (r.u8()) throw new Error(`${name}: compressed UEFormat file (not supported)`);
   return { r, version, name };
 }
 
@@ -156,7 +156,7 @@ function parseBones(r, count, withScale) {
 
 export function parseUEModel(buffer) {
   const { r, version, name } = header(buffer, 'UEMODEL');
-  if (version < 4) throw new Error(`${name}: versión UEFormat ${version} no soportada`);
+  if (version < 4) throw new Error(`${name}: UEFormat version ${version} not supported`);
   const model = { name, version, lods: [], bones: [], sockets: [] };
   const chunked = version >= CHUNKED_VERSION;
   const top = chunked ? countedChunks(r) : streamChunks(r);

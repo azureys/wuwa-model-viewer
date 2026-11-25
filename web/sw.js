@@ -1,7 +1,7 @@
 // Offline app shell for the iPhone / browser version. Models are not here: they live in IndexedDB.
 // The block between the AUTO markers is written by tools/gen-sw.mjs (run it after changing web/).
 // AUTO-BEGIN
-const VERSION = 'd0d9308aa88a';
+const VERSION = '1c139c9524b3';
 const ASSETS = [
  "./",
  "./icons/apple-touch-icon.png",
@@ -50,7 +50,7 @@ self.addEventListener('fetch', (e) => {
       if (res.ok && url.pathname.startsWith(new URL('./', location).pathname)) cache.put(req, res.clone());
       return res;
     } catch (err) {
-      return new Response('Sin conexión', { status: 503, headers: { 'content-type': 'text/plain; charset=utf-8' } });
+      return new Response('Offline', { status: 503, headers: { 'content-type': 'text/plain; charset=utf-8' } });
     }
   })());
 });
