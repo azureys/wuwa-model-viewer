@@ -1,7 +1,7 @@
 // Offline app shell for the iPhone / browser version. Models are not here: they live in IndexedDB.
 // The block between the AUTO markers is written by tools/gen-sw.mjs (run it after changing web/).
 // AUTO-BEGIN
-const VERSION = '24bd5ca0f97b';
+const VERSION = '4e640ebb7600';
 const ASSETS = [
  "./",
  "./icons/apple-touch-icon.png",

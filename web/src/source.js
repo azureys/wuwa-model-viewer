@@ -58,7 +58,7 @@ export class PackageSource {
     const anims = this.files.filter((f) => /\.ueanim$/i.test(f));
     const dirOf = (f) => f.split('/').slice(0, -2).join('/'); // ".../<Asset>/Model/x.uemodel" → ".../<Asset>"
     const groupOf = (f) => {
-      if (/\/Weapon\/Prop\//i.test(f)) return 'prop';
+      if (/\/(Weapon\/)?Prop\//i.test(f)) return 'prop'; // Weapon/Prop/Role/<X>Prop or Prop/RoleProp/<X>Prop
       if (/\/Weapon\//i.test(f)) return 'weapon';
       return 'character';
     };
