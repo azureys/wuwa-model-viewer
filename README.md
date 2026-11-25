@@ -13,7 +13,7 @@ import a `.zip` you downloaded yourself.
 - Clothes: hide material sections, "scissors mode" to hide loose pieces by tapping them, piece list.
 - Face: every morph target, with search.
 - Lights: as many as you want (directional, point, spot, hemisphere, ambient), color, intensity, position, shadows, presets.
-- Scene: backgrounds (gradient, color, your own image, transparent), floor, camera presets, auto-rotate, PNG screenshots (also transparent).
+- Scene: background dropdown (Studio, animated Galaxy, Starry night, Dusk, Sakura, Black, White, Transparent), floor, PNG screenshots (also transparent).
 - Background music: the character select theme (`web/audio/bgm.mp3`), looped seamlessly with Web Audio.
 
 ## Downloading characters

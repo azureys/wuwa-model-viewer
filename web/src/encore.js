@@ -3,7 +3,7 @@ import { parseUEModel, parseMaterialJson, gamePath } from './ueformat.js';
 import * as platform from './platform.js';
 
 const API = 'https://api-v2.encore.moe/api';
-export const STORAGE = 'https://s3-storage-api.encore.moe/resource/Data/Game/';
+const STORAGE = 'https://s3-storage-api.encore.moe/resource/Data/Game/';
 const lang = () => 'en';
 
 async function getJson(url) {

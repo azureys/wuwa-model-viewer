@@ -226,6 +226,13 @@ body.solid #library, body.solid #store { background: #0e1018; -webkit-backdrop-f
 .popmenu button.danger { color: var(--danger); }
 .popmenu .ico { width: 18px; height: 18px; }
 .scrim { position: fixed; inset: 0; z-index: 39; }
+/* dropdown: a field showing the current choice, opening a glass list */
+.dropdown { width: 100%; display: flex; align-items: center; gap: 10px; background: var(--fill); border: 1px solid var(--line); border-radius: 14px; padding: 8px 12px; text-align: left; -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur); }
+.dropdown span { flex: 1; }
+.dropdown .ico { width: 18px; height: 18px; color: var(--muted); }
+.dropmenu { max-height: 60vh; overflow-y: auto; }
+.dropmenu button.on { background: var(--on); }
+.swatch { width: 22px; height: 22px; border-radius: 7px; border: 1px solid rgba(255,255,255,.25); display: block; flex: none; background-size: cover; }
 
 /* character picker */
 .roster { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 10px; margin-top: 12px; }
