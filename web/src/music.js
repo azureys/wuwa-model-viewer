@@ -1,62 +1,43 @@
-// Background music: the user picks an audio file, it is kept in IndexedDB and looped.
-import { store } from './platform.js';
+// Background music: the bundled theme, looped seamlessly with Web Audio.
+// audio/bgm.mp3 = intro + one pass of the loop (with a short crossfade at the end and a copy of
+// the loop start after it), so the loop points below hold whatever decoder padding a browser adds.
+const SRC = 'audio/bgm.mp3';
+const LOOP_START = 41;                 // s
+const LOOP_END = 7486693 / 48000;      // s (loop length 5518693 samples at 48 kHz ≈ 114.97 s)
+const VOLUME = 0.5;
 
-const DB = 'wuwa-music', OS = 'tracks', KEY = 'bg';
-const audio = new Audio();
-audio.loop = true;
-let url = null;
+let ctx = null, node = null;
 
-function db() {
-  return new Promise((res, rej) => {
-    const r = indexedDB.open(DB, 1);
-    r.onupgradeneeded = () => r.result.createObjectStore(OS);
-    r.onsuccess = () => res(r.result);
-    r.onerror = () => rej(r.error);
-  });
+async function start() {
+  const AC = window.AudioContext || window.webkitAudioContext;
+  if (!AC) return;
+  ctx = new AC();
+  const gain = ctx.createGain();
+  gain.gain.value = VOLUME;
+  gain.connect(ctx.destination);
+  const data = await (await fetch(SRC)).arrayBuffer();
+  const buffer = await new Promise((res, rej) => ctx.decodeAudioData(data, res, rej));
+  node = ctx.createBufferSource();
+  node.buffer = buffer;
+  node.loop = true;
+  node.loopStart = LOOP_START;
+  node.loopEnd = Math.min(LOOP_END, buffer.duration);
+  node.connect(gain);
+  node.start();
+  if (document.hidden) ctx.suspend();
 }
-async function tx(mode, fn) {
-  const d = await db();
-  return new Promise((res, rej) => {
-    const t = d.transaction(OS, mode); const req = fn(t.objectStore(OS));
-    t.oncomplete = () => res(req?.result); t.onerror = () => rej(t.error);
-  });
-}
 
-export const music = {
-  audio,
-  name: store.get('music.name', null),
-  get enabled() { return store.get('music.on', true); },
-  get volume() { return store.get('music.vol', 0.5); },
-  get playing() { return !audio.paused; },
-  async init() {
-    audio.volume = this.volume;
-    try {
-      const blob = await tx('readonly', (s) => s.get(KEY));
-      if (blob) { this._set(blob); if (this.enabled) this.play(); }
-    } catch { /* no storage */ }
-    // only play while the app is in front
-    document.addEventListener('visibilitychange', () => {
-      if (document.hidden) audio.pause(); else if (this.enabled && url) this.play();
-    });
-    // WebView/browsers may block autoplay until the first touch
-    const kick = () => { if (this.enabled && url && audio.paused) this.play(); };
-    window.addEventListener('pointerdown', kick, { once: true });
-  },
-  _set(blob) { if (url) URL.revokeObjectURL(url); url = URL.createObjectURL(blob); audio.src = url; },
-  async load(file) {
-    this._set(file);
-    this.name = file.name.replace(/\.[^.]+$/, '');
-    store.set('music.name', this.name);
-    store.set('music.on', true);
-    try { await tx('readwrite', (s) => s.put(file, KEY)); } catch { /* kept for this session only */ }
-    this.play();
-  },
-  async remove() {
-    audio.pause(); audio.removeAttribute('src'); if (url) URL.revokeObjectURL(url); url = null;
-    this.name = null; store.set('music.name', null);
-    try { await tx('readwrite', (s) => s.delete(KEY)); } catch { /* ignore */ }
-  },
-  play() { if (url) audio.play().catch(() => {}); },
-  setEnabled(v) { store.set('music.on', v); if (v) this.play(); else audio.pause(); },
-  setVolume(v) { store.set('music.vol', v); audio.volume = v; },
-};
+export function initMusic() {
+  // iPhone: play like a music app, also with the silent switch on
+  try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch { /* older iOS */ }
+  try { indexedDB.deleteDatabase('wuwa-music'); } catch { /* frees the audio file older versions let you pick */ }
+  start().catch((e) => console.warn('music:', e));
+  // only play while the app is in front
+  document.addEventListener('visibilitychange', () => {
+    if (!ctx) return;
+    if (document.hidden) ctx.suspend(); else ctx.resume();
+  });
+  // browsers keep audio locked until the first touch
+  const unlock = () => { if (ctx && ctx.state !== 'running' && !document.hidden) ctx.resume(); };
+  for (const ev of ['pointerdown', 'touchend', 'keydown']) window.addEventListener(ev, unlock, { capture: true });
+}

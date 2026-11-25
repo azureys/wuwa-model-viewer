@@ -248,7 +248,6 @@ export class Rig {
     this.boneByName = new Map();          // original name → bone
     this.skeleton = null;
     this.models = [];                     // { name, meshes: [section entries] }
-    this.sockets = new Map();
     this.morphIndex = new Map();          // morph name → [{mesh, slot}]
     this.morphMeta = [];                  // [{name, group}]
   }
@@ -273,16 +272,6 @@ export class Rig {
       }
       map[i] = bone;
     });
-    for (const s of model.sockets ?? []) {
-      if (this.sockets.has(s.name)) continue;
-      const parent = this.boneByName.get(s.bone); if (!parent) continue;
-      const o = new THREE.Object3D();
-      o.name = this.prefix + 'socket_' + s.name;
-      o.position.set(s.pos[0], s.pos[1], s.pos[2]);
-      o.quaternion.set(s.rot[0], s.rot[1], s.rot[2], s.rot[3]);
-      parent.add(o);
-      this.sockets.set(s.name, o);
-    }
     return map;
   }
 

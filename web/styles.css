@@ -41,9 +41,17 @@ body.solid { --glass-tint: rgba(24, 27, 38, .97); }
 .icon { border-radius: 999px; min-width: 42px; height: 42px; display: inline-flex; align-items: center; justify-content: center; padding: 0 10px; gap: 4px; background: var(--glass-tint); border: 1px solid var(--line); color: var(--text); transition: transform .15s, background .15s; }
 .icon:active { transform: scale(.92); background: var(--fill3); }
 .icon.ghost, .ghost { background: none; border: 0; box-shadow: none; color: var(--text); -webkit-backdrop-filter: none; backdrop-filter: none; }
-#titlePill { flex: 0 1 auto; min-width: 0; max-width: 46vw; height: 42px; border-radius: 999px; display: flex; align-items: center; gap: 8px; padding: 0 14px 0 5px; }
+#titlePill { flex: 0 1 auto; min-width: 0; max-width: 40vw; height: 42px; border-radius: 999px; display: flex; align-items: center; gap: 8px; padding: 0 14px 0 5px; }
 #titleAvatar { width: 32px; height: 32px; border-radius: 50%; flex: none; background: var(--fill2) center / cover no-repeat; display: grid; place-items: center; font-weight: 700; font-size: 14px; color: var(--muted); }
 #titleAvatar:empty:not([style*=url]) { background: var(--fill2); }
+#weaponPill { position: relative; flex: 0 2 auto; min-width: 58px; max-width: 30vw; height: 42px; border-radius: 999px; display: flex; align-items: center; gap: 5px; padding: 0 10px 0 12px; font-size: 13px; font-weight: 600; color: var(--text); }
+#weaponPill[hidden] { display: none; }
+#weaponPill.off .ico:first-of-type { opacity: .45; }
+#weaponPill .ico { width: 17px; height: 17px; flex: none; }
+#weaponPill .ico:last-of-type { width: 14px; height: 14px; opacity: .6; }
+#weaponName { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+@media (max-width: 499px) { #weaponName { display: none; } #weaponPill { min-width: 0; padding: 0 9px 0 11px; } #topbar, .tb-right { gap: 6px; } #topbar .icon { min-width: 40px; height: 40px; padding: 0 8px; } #titlePill, #weaponPill { height: 40px; } }
+#weaponSelect { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; font-size: 16px; }
 #title { font-weight: 650; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 15px; }
 
 /* ------------------------------------------------------------------ floating tab bar */
