@@ -4,7 +4,7 @@ import * as platform from './platform.js';
 
 const API = 'https://api-v2.encore.moe/api';
 export const STORAGE = 'https://s3-storage-api.encore.moe/resource/Data/Game/';
-const lang = () => (navigator.language || 'es').slice(0, 2).toLowerCase() === 'en' ? 'en' : 'es';
+const lang = () => 'en';
 
 async function getJson(url) {
   const r = await fetch(url);
@@ -31,44 +31,61 @@ const rel = (u) => u.replace(/^.*?\/Game\//, '');
 // Returns { id, name } of the new library entry.
 export async function downloadCharacter(ch, variantIndex, weaponId, onProgress) {
   const v = ch.variants[variantIndex];
-  if (!v) throw new Error('Este personaje no tiene modelo 3D');
+  if (!v) throw new Error('This character has no 3D model');
   const equips = ch.equips.filter((e) => e.kind === 'prop' || (weaponId != null && e.id === weaponId));
   const title = ch.variants.length > 1 ? `${ch.name} · ${v.name}` : ch.name;
-  const id = platform.newModelId(title);
-  const base = `${platform.MODELS_BASE}/${encodeURIComponent(id)}/`;
-  const local = (p) => base + p.split('/').map(encodeURIComponent).join('/');
-  let stage = '';
+  const id = await platform.newModelId(title);
+  try {
+    await fetchAll(id, v, equips, onProgress);
+    await platform.finalizeModel(id, title);
+  } catch (e) {
+    await platform.abortDownload(id);
+    throw e;
+  }
+  return { id, name: title };
+}
+
+async function fetchAll(id, v, equips, onProgress) {
+  let stage = '', bytesBefore = 0;
+  const mb = (b) => (b / 1048576).toFixed(0);
   const batch = async (label, paths, weight0, weight1) => {
     stage = label;
     const uniq = [...new Set(paths)];
     if (!uniq.length) return [];
-    return platform.downloadBatch(id, STORAGE, uniq, (done, total, bytes) =>
-      onProgress?.(Math.round(weight0 + (weight1 - weight0) * (done / total)), `${stage} ${done}/${total} · ${(bytes / 1048576).toFixed(0)} MB`));
+    let last = 0;
+    const failed = await platform.downloadBatch(id, STORAGE, uniq, (done, total, bytes) => {
+      last = bytes;
+      onProgress?.(Math.round(weight0 + (weight1 - weight0) * (done / total)), `${stage} ${done}/${total} · ${mb(bytesBefore + bytes)} MB`);
+    });
+    bytesBefore += last;
+    return failed;
   };
+  const read = (p) => platform.readDownloaded(id, p);
 
   const models = [v.model, ...v.parts, ...equips.flatMap((e) => [e.model, ...e.parts])].map(rel);
   const anims = [...v.anims, ...equips.flatMap((e) => e.anims)].map(rel);
-  await batch('Modelos', models, 0, 15);
+  const failedModels = await batch('Models', models, 0, 15);
+  if (failedModels.includes(rel(v.model))) throw new Error('could not download the character model');
   // material tables referenced by each model
   const matJobs = [];
   for (const m of models) {
     try {
-      const r = await fetch(local(m)); if (!r.ok) continue;
-      const model = parseUEModel(await r.arrayBuffer());
+      const buf = await read(m); if (!buf) continue;
+      const model = parseUEModel(buf);
       const dir = m.slice(0, m.lastIndexOf('/'));
       for (const mat of model.lods[0]?.materials ?? []) {
         const p = gamePath(mat.path || mat.name);
         matJobs.push({ path: p + '.json', dir }, { path: p + '_OL.json', dir });
       }
-    } catch (e) { console.warn('modelo no leído', m, e); }
+    } catch (e) { console.warn('could not read model', m, e); }
   }
-  await batch('Materiales', matJobs.map((j) => j.path), 15, 22);
+  await batch('Materials', matJobs.map((j) => j.path), 15, 22);
   // textures referenced by the materials (fallback: next to the model)
   const texJobs = [];
   for (const j of matJobs) {
     try {
-      const r = await fetch(local(j.path)); if (!r.ok) continue;
-      const mat = parseMaterialJson(await r.json());
+      const buf = await read(j.path); if (!buf) continue;
+      const mat = parseMaterialJson(JSON.parse(new TextDecoder().decode(buf)));
       for (const t of Object.values(mat.textures)) {
         if (!t?.ObjectPath) continue;
         const p = gamePath(t.ObjectPath);
@@ -77,10 +94,8 @@ export async function downloadCharacter(ch, variantIndex, weaponId, onProgress) 
     } catch { /* missing outline tables are normal */ }
   }
   const texMap = new Map(texJobs.map((t) => [t.path, t]));
-  const failedTex = await batch('Texturas', [...texMap.keys()], 22, 55);
+  const failedTex = await batch('Textures', [...texMap.keys()], 22, 55);
   const alts = failedTex.map((p) => texMap.get(p)?.alt).filter(Boolean);
-  if (alts.length) await batch('Texturas', alts, 55, 58);
-  await batch('Animaciones', anims, 58, 100);
-  platform.finalizeModel(id, title);
-  return { id, name: title };
+  if (alts.length) await batch('Textures', alts, 55, 58);
+  await batch('Animations', anims, 58, 100);
 }

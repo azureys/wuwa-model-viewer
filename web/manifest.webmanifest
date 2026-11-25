@@ -1,8 +1,8 @@
 {
-  "name": "Visor WuWa 3D",
-  "short_name": "Visor WuWa",
-  "description": "Visor 3D offline de personajes de Wuthering Waves (modelos de encore.moe)",
-  "lang": "es",
+  "name": "WuWa 3D Viewer",
+  "short_name": "WuWa Viewer",
+  "description": "Offline 3D viewer for Wuthering Waves characters (encore.moe models)",
+  "lang": "en",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",

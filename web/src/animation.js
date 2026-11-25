@@ -79,7 +79,7 @@ export function describeAnims(paths, roleDir) {
     const parts = rel.split('/');
     const label = parts.pop();
     let group = parts.join('/') || 'General';
-    group = group.replace(/^[^/]*Md\d+\/RibbonAnim\d*/i, 'Cintas (ribbon)').replace(/^CommonAnim\/UiAnim/i, 'Menú (UI)').replace(/^CommonAnim$/i, 'Comunes');
+    group = group.replace(/^[^/]*Md\d+\/RibbonAnim\d*/i, 'Ribbons').replace(/^CommonAnim\/UiAnim/i, 'Menu (UI)').replace(/^CommonAnim$/i, 'Common');
     const isFight = /^AM_|^(Attack|AirAttack|Skill|Burst|Execute|Hattack|QTE|Rogue|Jump|Move)/i.test(label);
     if (!groups.has(group)) groups.set(group, []);
     groups.get(group).push({ path: p, label, fight: isFight, ribbon: /RibbonAnim/i.test(p) });

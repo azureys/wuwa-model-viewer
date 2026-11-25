@@ -35,7 +35,7 @@ export async function listModels() {
 export async function openPackage(id) {
   if (isAndroid || devModels) return PackageSource.open(`${MODELS_BASE}/${encodeURIComponent(id)}`);
   const files = await webstore.getFileList(id);
-  if (!files) throw new Error('Modelo no encontrado en el dispositivo');
+  if (!files) throw new Error('Model not found on this device');
   return new PackageSource(`idb:${id}`, files, (path) => webstore.readFile(id, path));
 }
 export async function importZip() {
@@ -63,12 +63,12 @@ export function saveFile(name, data, mime) {
   if (isIOS && navigator.canShare) {
     const file = new File([blob], name, { type: mime });
     if (navigator.canShare({ files: [file] })) {
-      navigator.share({ files: [file] }).then(() => emit('file', 'Guardado')).catch((e) => { if (e?.name !== 'AbortError') download(name, blob); });
+      navigator.share({ files: [file] }).then(() => emit('file', 'Saved')).catch((e) => { if (e?.name !== 'AbortError') download(name, blob); });
       return;
     }
   }
   download(name, blob);
-  emit('file', 'Descargado: ' + name);
+  emit('file', 'Downloaded: ' + name);
 }
 function download(name, blob) {
   const a = document.createElement('a');
@@ -100,15 +100,97 @@ export const store = {
   set(key, v) { try { localStorage.setItem('wuwa.' + key, JSON.stringify(v)); } catch { /* ignore */ } },
 };
 
-// ---- downloads from encore.moe (Android only: files go straight to the model folder)
-export const canDownload = isAndroid;
-export function newModelId(name) { return native.newModelId(name); }
-export function finalizeModel(id, name) { return native.finalizeModel(id, name); }
+// ---- downloads from encore.moe
+// Android downloads natively straight into the model folder. The browser / iPhone version can't read
+// encore.moe's file storage directly (it only allows encore.moe itself), so it goes through a small
+// relay (Cloudflare Worker, see worker/) and keeps the files in IndexedDB.
+export const DOWNLOAD_RELAY = '';
+export function relayUrl() {
+  const q = new URLSearchParams(location.search).get('relay');
+  return String(q || store.get('relay', '') || DOWNLOAD_RELAY).trim().replace(/\/+$/, '');
+}
+export const canDownload = isAndroid || !devModels;
+export const needsRelay = () => !isAndroid && !relayUrl();
+export function setRelay(url) { store.set('relay', url.trim()); }
+
+const webDl = new Map(); // id -> { list: Set<path>, size }
+export async function newModelId(name) {
+  if (isAndroid) return native.newModelId(name);
+  const id = await webstore.newModelId(name);
+  webDl.set(id, { list: new Set(), size: 0 });
+  return id;
+}
+export async function finalizeModel(id, name) {
+  if (isAndroid) return native.finalizeModel(id, name);
+  const st = webDl.get(id); webDl.delete(id);
+  return webstore.finalizeDownload(id, name, [...st.list], st.size);
+}
+export async function abortDownload(id) {
+  if (isAndroid) { try { native.deleteModel(id); } catch { /* ignore */ } return; }
+  webDl.delete(id);
+  await webstore.deleteModel(id).catch(() => {});
+}
+// Read a file that was just downloaded (Android: local folder; web: IndexedDB).
+export async function readDownloaded(id, path) {
+  if (isAndroid) {
+    const r = await fetch(`${MODELS_BASE}/${encodeURIComponent(id)}/` + path.split('/').map(encodeURIComponent).join('/'));
+    return r.ok ? r.arrayBuffer() : null;
+  }
+  const b = await webstore.readFile(id, path);
+  return b ? b.arrayBuffer() : null;
+}
 let batchSeq = 0;
+// Download paths (relative to base) into model `id`. progress(done, total, bytesSoFar). Resolves with the failed paths.
 export function downloadBatch(id, base, paths, progress) {
+  if (!isAndroid) return webBatch(id, paths, progress);
   return new Promise((resolve) => {
     const token = 'b' + (++batchSeq);
     batches.set(token, { resolve, progress });
     native.downloadBatch(id, base, JSON.stringify(paths), token);
   });
+}
+async function fetchRetry(url) {
+  for (let i = 0; ; i++) {
+    try {
+      const r = await fetch(url);
+      if (r.ok || r.status === 404 || r.status === 403 || i >= 2) return r;
+    } catch (e) { if (i >= 2) throw e; }
+    await new Promise((res) => setTimeout(res, 800 * (i + 1)));
+  }
+}
+async function webBatch(id, paths, progress) {
+  const st = webDl.get(id);
+  const relay = relayUrl();
+  if (!relay) throw new Error('no download relay set');
+  const failed = [], size0 = st.size;
+  let next = 0, done = 0, pending = [], pendingBytes = 0, fatal = null;
+  const flush = async () => {
+    if (!pending.length) return;
+    const b = pending; pending = []; pendingBytes = 0;
+    await webstore.putFiles(id, b);
+  };
+  const worker = async () => {
+    while (next < paths.length && !fatal) {
+      const p = paths[next++];
+      try {
+        const r = await fetchRetry(`${relay}/${p.split('/').map(encodeURIComponent).join('/')}`);
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        const blob = await r.blob();
+        pending.push([p, blob]); pendingBytes += blob.size;
+        st.list.add(p); st.size += blob.size;
+        if (pendingBytes > 16 * 1048576 || pending.length >= 48) await flush();
+      } catch (e) {
+        if (e?.name === 'QuotaExceededError') fatal = new Error('not enough free space on this device');
+        else if (e instanceof TypeError) failed.push(p), (st.netErrors = (st.netErrors ?? 0) + 1);
+        else failed.push(p);
+      }
+      done++;
+      progress?.(done, paths.length, st.size - size0);
+    }
+  };
+  await Promise.all(Array.from({ length: 6 }, worker));
+  try { await flush(); } catch (e) { fatal ??= e?.name === 'QuotaExceededError' ? new Error('not enough free space on this device') : e; }
+  if (fatal) throw fatal;
+  if (paths.length && st.netErrors >= paths.length) throw new Error('could not reach the download relay (check your connection)');
+  return failed;
 }

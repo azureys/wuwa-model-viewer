@@ -48,7 +48,7 @@ export async function loadTexture(src, path, srgb = true) {
       tex.needsUpdate = true;
       return tex;
     } catch (e) {
-      console.warn('Textura no cargada', path, e);
+      console.warn('Texture not loaded', path, e);
       return null;
     }
   })();
@@ -308,17 +308,17 @@ export class Rig {
   }
 
   async addModel(src, path, { onStatus, label } = {}) {
-    onStatus?.('Cargando malla…');
+    onStatus?.('Loading mesh…');
     const model = parseUEModel(await src.buffer(path));
     const lod = model.lods[0];
-    if (!lod) throw new Error(`${model.name}: el modelo no tiene LODs`);
+    if (!lod) throw new Error(`${model.name}: the model has no LODs`);
     const boneObjs = this.mergeBones(model);
     const boneIndex = new Map(this.bones.map((b, i) => [b, i]));
     const boneMap = boneObjs.map((b) => boneIndex.get(b));
     const skin = buildSkinAttributes(lod, lod.positions.length / 3, boneMap);
     const smoothed = smoothNormals(lod.positions, lod.normals ?? new Float32Array(lod.positions.length));
     const sections = sectionGeometries(lod, skin, decodeOutlineNormals(lod), smoothed);
-    onStatus?.('Cargando texturas…');
+    onStatus?.('Loading textures…');
     const modelDir = path.split('/').slice(0, -1).join('/');
     const mats = await Promise.all(lod.materials.map((m) => loadMaterialSet(src, m, modelDir)));
     const entry = { name: label ?? model.name, file: path, model, meshes: [], visible: true };
@@ -393,7 +393,7 @@ function prettySection(matName, modelName) {
   const base = modelName.replace(/^MI_/, '');
   if (n.startsWith(base)) n = n.slice(base.length);
   n = n.replace(/^_/, '');
-  const dict = { Up: 'Parte superior', Down: 'Parte inferior', Hair: 'Pelo', Bangs: 'Flequillo', Face: 'Cara', Eye: 'Ojos', Item: 'Accesorios', Alpha: 'Transparencias', Body: 'Cuerpo', Cloth: 'Ropa', Skin: 'Piel', Weapon: 'Arma' };
+  const dict = { Up: 'Upper body', Down: 'Lower body', Hair: 'Hair', Bangs: 'Bangs', Face: 'Face', Eye: 'Eyes', Item: 'Accessories', Alpha: 'Transparent parts', Body: 'Body', Cloth: 'Clothes', Skin: 'Skin', Weapon: 'Weapon' };
   return dict[n] ? `${dict[n]} (${n})` : (n || matName);
 }
 

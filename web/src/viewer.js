@@ -3,7 +3,7 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/OrbitControls.js';
 
 export const LIGHT_TYPES = {
-  directional: 'Direccional', point: 'Puntual', spot: 'Foco', hemisphere: 'Hemisférica', ambient: 'Ambiente (sombras)',
+  directional: 'Directional', point: 'Point', spot: 'Spot', hemisphere: 'Hemisphere', ambient: 'Ambient (shadows)',
 };
 
 let lightSeq = 0;
@@ -19,50 +19,50 @@ export function newLight(type, over = {}) {
 }
 
 export const LIGHT_PRESETS = {
-  'Estudio': () => [
+  'Studio': () => [
     newLight('ambient', { intensity: 1 }),
-    newLight('directional', { name: 'Principal', azimuth: 35, elevation: 40, intensity: 1, castShadow: true }),
-    newLight('directional', { name: 'Contra', azimuth: 200, elevation: 25, intensity: 0.7, color: '#bfe3ff' }),
+    newLight('directional', { name: 'Key', azimuth: 35, elevation: 40, intensity: 1, castShadow: true }),
+    newLight('directional', { name: 'Back', azimuth: 200, elevation: 25, intensity: 0.7, color: '#bfe3ff' }),
   ],
-  'Menú del juego': () => [
+  'Game menu': () => [
     newLight('ambient', { intensity: 1.05 }),
-    newLight('directional', { name: 'Principal', azimuth: 20, elevation: 30, intensity: 1, castShadow: true, followCamera: true }),
-    newLight('directional', { name: 'Borde', azimuth: 160, elevation: 10, intensity: 0.9, color: '#dff4ff', followCamera: true }),
+    newLight('directional', { name: 'Key', azimuth: 20, elevation: 30, intensity: 1, castShadow: true, followCamera: true }),
+    newLight('directional', { name: 'Rim', azimuth: 160, elevation: 10, intensity: 0.9, color: '#dff4ff', followCamera: true }),
   ],
-  'Contraluz': () => [
+  'Backlight': () => [
     newLight('ambient', { intensity: 0.8 }),
-    newLight('directional', { name: 'Contraluz', azimuth: 180, elevation: 30, intensity: 1.6, color: '#fff1d6' }),
-    newLight('point', { name: 'Relleno', azimuth: 20, elevation: 10, distance: 2, intensity: 1.5, color: '#9fb8ff' }),
+    newLight('directional', { name: 'Backlight', azimuth: 180, elevation: 30, intensity: 1.6, color: '#fff1d6' }),
+    newLight('point', { name: 'Fill', azimuth: 20, elevation: 10, distance: 2, intensity: 1.5, color: '#9fb8ff' }),
   ],
-  'Atardecer': () => [
+  'Sunset': () => [
     newLight('hemisphere', { color: '#ffb27a', groundColor: '#3a2d55', intensity: 0.6 }),
     newLight('ambient', { intensity: 0.7, color: '#d9c6ff' }),
-    newLight('directional', { name: 'Sol', azimuth: 70, elevation: 12, intensity: 1.3, color: '#ff9d5c', castShadow: true }),
-    newLight('directional', { name: 'Cielo', azimuth: 230, elevation: 40, intensity: 0.5, color: '#7d8cff' }),
+    newLight('directional', { name: 'Sun', azimuth: 70, elevation: 12, intensity: 1.3, color: '#ff9d5c', castShadow: true }),
+    newLight('directional', { name: 'Sky', azimuth: 230, elevation: 40, intensity: 0.5, color: '#7d8cff' }),
   ],
-  'Neón': () => [
+  'Neon': () => [
     newLight('ambient', { intensity: 0.55, color: '#b8b0ff' }),
     newLight('point', { name: 'Magenta', azimuth: 60, elevation: 15, distance: 1.6, intensity: 6, color: '#ff3fb4' }),
-    newLight('point', { name: 'Cian', azimuth: 280, elevation: 25, distance: 1.6, intensity: 6, color: '#36e2ff' }),
-    newLight('spot', { name: 'Cenital', azimuth: 0, elevation: 80, distance: 3, intensity: 5, color: '#ffffff', angle: 25 }),
+    newLight('point', { name: 'Cyan', azimuth: 280, elevation: 25, distance: 1.6, intensity: 6, color: '#36e2ff' }),
+    newLight('spot', { name: 'Top', azimuth: 0, elevation: 80, distance: 3, intensity: 5, color: '#ffffff', angle: 25 }),
   ],
-  'Noche': () => [
+  'Night': () => [
     newLight('ambient', { intensity: 0.65, color: '#8ea0d8' }),
-    newLight('directional', { name: 'Luna', azimuth: 140, elevation: 45, intensity: 0.8, color: '#a9c4ff', castShadow: true }),
-    newLight('point', { name: 'Farol', azimuth: 330, elevation: 5, distance: 1.4, intensity: 4, color: '#ffc07a' }),
+    newLight('directional', { name: 'Moon', azimuth: 140, elevation: 45, intensity: 0.8, color: '#a9c4ff', castShadow: true }),
+    newLight('point', { name: 'Lantern', azimuth: 330, elevation: 5, distance: 1.4, intensity: 4, color: '#ffc07a' }),
   ],
-  'Plano': () => [newLight('ambient', { intensity: 1.4 })],
+  'Flat': () => [newLight('ambient', { intensity: 1.4 })],
 };
 
 export const BG_PRESETS = [
-  { name: 'Estudio', type: 'gradient', top: '#3a4157', bottom: '#12141c' },
-  { name: 'Menú', type: 'gradient', top: '#d9dde8', bottom: '#8e95a8' },
-  { name: 'Cielo', type: 'gradient', top: '#7ec3ff', bottom: '#e9f4ff' },
-  { name: 'Atardecer', type: 'gradient', top: '#3b2a63', bottom: '#ff9e6b' },
-  { name: 'Noche', type: 'gradient', top: '#05070f', bottom: '#1d2645' },
+  { name: 'Studio', type: 'gradient', top: '#3a4157', bottom: '#12141c' },
+  { name: 'Menu', type: 'gradient', top: '#d9dde8', bottom: '#8e95a8' },
+  { name: 'Sky', type: 'gradient', top: '#7ec3ff', bottom: '#e9f4ff' },
+  { name: 'Sunset', type: 'gradient', top: '#3b2a63', bottom: '#ff9e6b' },
+  { name: 'Night', type: 'gradient', top: '#05070f', bottom: '#1d2645' },
   { name: 'Sakura', type: 'gradient', top: '#ffe0ec', bottom: '#c8a2c8' },
-  { name: 'Negro', type: 'color', color: '#000000' },
-  { name: 'Blanco', type: 'color', color: '#ffffff' },
+  { name: 'Black', type: 'color', color: '#000000' },
+  { name: 'White', type: 'color', color: '#ffffff' },
   { name: 'Croma verde', type: 'color', color: '#00b140' },
 ];
 

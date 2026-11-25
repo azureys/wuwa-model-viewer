@@ -1,5 +1,5 @@
 # Publishes web/ as the iPhone / browser version (PWA) on GitHub Pages.
-name: Publicar PWA
+name: Publish PWA
 on:
   push:
     branches: [main]
