@@ -104,7 +104,7 @@ export const store = {
 // Android downloads natively straight into the model folder. The browser / iPhone version can't read
 // encore.moe's file storage directly (it only allows encore.moe itself), so it goes through a small
 // relay (Cloudflare Worker, see worker/) and keeps the files in IndexedDB.
-export const DOWNLOAD_RELAY = '';
+export const DOWNLOAD_RELAY = 'https://wuwa-download-relay.azureys.workers.dev';
 export function relayUrl() {
   const q = new URLSearchParams(location.search).get('relay');
   return String(q || store.get('relay', '') || DOWNLOAD_RELAY).trim().replace(/\/+$/, '');
