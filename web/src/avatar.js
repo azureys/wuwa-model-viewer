@@ -35,13 +35,20 @@ const FALLBACK = { E_Smile_L: 'E_Close', E_Smile_R: 'E_Close', M_Trapezoid: 'M_E
 const EMOTE = { heart: '♥', note: '♪', bang: '!', huh: '?', mad: '💢', dots: '…', sweat: '💦', sparkle: '✨' };
 
 // Dialog gestures from the character's own files (Sequence/…/DialogAnim/<rig>/Body/<Name>_Start|_Loop|_End).
+// Each kind lists name patterns in order of preference; one existing set is picked at random.
 const BODY = {
   shy: [/^shy\d*$/i],
-  complain: [/^tsundere\d*$/i, /^complain\d*$/i],
-  scared: [/^scare\d*$/i, /^shy\d*$/i],
-  happy: [/^excite\d*$/i, /^guzhang\d*$/i],
-  greet: [/^greetings?\d*$/i],
-  hush: [/^xu\d*$/i],
+  complain: [/^(tsundere|complain)\d*$/i, /^forbear\d*$/i],
+  scared: [/^scare\d*$/i, /^(shy|awareness)\d*$/i],
+  happy: [/^(excite|guzhang|elevate)\d*$/i, /^fool\d*$/i],
+  greet: [/^greetings?\d*$/i, /^(promise|expect)\d*$/i],
+  hush: [/^xu\d*$/i, /^touch\d*$/i],
+  touched: [/^touch\d*$/i, /^shy\d*$/i],
+  think: [/^thinking\d*$/i, /^awareness\d*$/i],
+  pleased: [/^(promise|expect|support)\d*$/i, /^shy\d*$/i],
+  endure: [/^forbear\d*$/i, /^(complain|tsundere)\d*$/i],
+  // calm idle gestures she does on her own now and then
+  idle: [/^(calm|talk|thinking|expect|elevate)\d*$/i],
 };
 
 export class Avatar {
@@ -105,6 +112,12 @@ export class Avatar {
     Object.assign(this.pose, { yaw: 0, pitch: 0, tilt: 0, nod: 0, turn: 0, lean: 0 });
     Object.assign(this.poseTarget, { tilt: 0, nod: 0, turn: 0, lean: 0 });
     this.blush = this.blushTarget = 0; this.annoy = 0; this.affection = 0; this.phases = [];
+    // this.t restarts at 0 on every entry: timers from the previous character must restart too, or every
+    // touch is ignored until the clock catches up with them
+    this.lastReact = -1; this.lastGesture = -10; this.phasePriority = 0; this.gestureToken = (this.gestureToken ?? 0) + 1;
+    this.touch = null; this.hover = null; this.idleT = 0; this.nextIdle = 6; this.gestureIdleT = 0; this.nextGestureIdle = rand(12, 20);
+    this.glance.next = 2; this.glance.until = 0;
+    this.poke.kind = -1; this.poke.release = false; this.poke.offset.set(0, 0, 0); this.poke.vel.set(0, 0, 0);
     this.written.clear();
     this.active = true;
     this.t = 0;
@@ -281,12 +294,14 @@ export class Avatar {
   async playGesture(kind, hold = 1.2) {
     const g = this.gesture(kind);
     if (!g) return false;
+    if (this.t - this.lastGesture < 1.5 && this.body.cur && !this.body.cur.idle) return false;
+    this.lastGesture = this.t;
     const token = (this.gestureToken = (this.gestureToken ?? 0) + 1);
     const steps = g.once ? [{ path: g.once }] : [{ path: g.start }, ...(g.loop ? [{ path: g.loop, hold }] : []), { path: g.end }];
     const clips = await Promise.all(steps.map((s) => this.clip(s.path)));
     if (token !== this.gestureToken || !this.active) return false;
     this.body.queue = steps.map((s, i) => ({ clip: clips[i], hold: s.hold }));
-    this.advanceBody(0.3);
+    this.advanceBody(0.45);
     return true;
   }
   advanceBody(fade = 0.35) {
@@ -306,7 +321,7 @@ export class Avatar {
     const c = this.body.cur;
     if (!c || c.idle) return;
     c.t += dt;
-    if (c.t >= c.len - 0.3) this.advanceBody(0.3);
+    if (c.t >= c.len - 0.4) this.advanceBody(0.45);
   }
 
   // timed expression changes for one reaction: [{ d, expr, w, pose, blush, emote }]
@@ -352,6 +367,11 @@ export class Avatar {
         else if (r < 0.55) this.react([{ d: 1.8, expr: 'curious', pose: { tilt: rand(-0.12, 0.12) } }, { d: 0.1 }], { priority: 0 });
       }
     } else this.idleT = 0;
+    // every so often a calm gesture of her own (talking, thinking…), only while nobody is touching
+    if (!this.touch && !this.phases.length && this.body.cur?.idle) {
+      this.gestureIdleT += dt;
+      if (this.gestureIdleT > this.nextGestureIdle) { this.gestureIdleT = 0; this.nextGestureIdle = rand(14, 26); this.playGesture('idle', rand(1.5, 3)); }
+    } else this.gestureIdleT = 0;
   }
 
   // ------------------------------------------------------------ morphs
@@ -437,8 +457,11 @@ export class Avatar {
     const wrap = (a) => Math.atan2(Math.sin(a), Math.cos(a));
     const yawNeed = wrap(Math.atan2(d.x, d.z) - Math.atan2(fwd.x, fwd.z));
     const pitchNeed = Math.asin(clamp(d.y, -1, 1)) - Math.asin(clamp(fwd.y, -1, 1));
-    const yawT = clamp(yawNeed * 0.8, -0.75, 0.75) + P.turn;
-    const pitchT = clamp(pitchNeed * 0.75, -0.4, 0.35);
+    // during one of the character's own gestures, let its head motion show instead of locking onto you
+    const gw = this.body.cur && !this.body.cur.idle && !this.touch ? 0.35 : 1;
+    this.gazeW = damp(this.gazeW ?? 1, gw, 3, dt);
+    const yawT = clamp(yawNeed * 0.8, -0.75, 0.75) * this.gazeW + P.turn;
+    const pitchT = clamp(pitchNeed * 0.75, -0.4, 0.35) * this.gazeW;
     const rate = this.touch ? 7 : 4;
     P.yaw = damp(P.yaw, yawT, rate, dt); P.pitch = damp(P.pitch, pitchT, rate, dt);
     // while held the head is pulled around but the eyes stay on you; in a reaction they look away with the head
@@ -487,8 +510,12 @@ export class Avatar {
     if (pk.kind >= 0) {
       if (pk.release) {
         // spring back with a little wobble
-        pk.vel.addScaledVector(pk.offset, -260 * dt).multiplyScalar(Math.exp(-9 * dt));
-        pk.offset.addScaledVector(pk.vel, dt);
+        // small fixed steps (semi-implicit) so slow phones with big frame times stay stable
+        const n = Math.max(1, Math.ceil(dt * 240)), h = dt / n;
+        for (let i = 0; i < n; i++) {
+          pk.vel.addScaledVector(pk.offset, -260 * h).multiplyScalar(Math.exp(-24 * h));
+          pk.offset.addScaledVector(pk.vel, h);
+        }
         if (pk.offset.lengthSq() < 1e-9 && pk.vel.lengthSq() < 1e-7) { pk.kind = -1; pk.release = false; }
       }
       toonGlobals.uPokeCenter.value.copy(this.toWorld(pk.local)).applyMatrix4(view);
@@ -562,7 +589,9 @@ export class Avatar {
   }
 
   pointerDown(e) {
-    if (!this.active || this.touch) return;
+    if (!this.active) return;
+    // a finger whose "up" never arrived (system gesture, second finger) must not block new touches
+    if (this.touch) { if (this.touch.id === e.pointerId) return; this.pointerUp({ pointerId: this.touch.id }); }
     const hit = this.hitTest(e);
     const now = performance.now();
     this.touch = { id: e.pointerId, x0: e.clientX, y0: e.clientY, x: e.clientX, y: e.clientY, t0: now, zone: hit?.zone ?? null, hit, moved: 0, gaze: this.fingerPoint(e), holding: false, strokes: 0, dir: 0 };
@@ -572,11 +601,11 @@ export class Avatar {
       const pk = this.poke;
       pk.kind = 2; pk.release = false; pk.vel.set(0, 0, 0); pk.offset.set(0, 0, 0);
       pk.local = hit.fc.clone();
-      pk.radius = this.face.size * 0.2;
+      pk.radius = this.face.size * 0.15;
       // even without dragging, the grabbed cheek puffs out sideways and toward you
       const side = z === 'cheekR' ? 1 : -1;
-      pk.grab = _v1.copy(this.axes.R).multiplyScalar(side).applyQuaternion(this.head.getWorldQuaternion(_q1)).transformDirection(this.viewer.camera.matrixWorldInverse).multiplyScalar(pk.radius * 0.35).clone();
-      pk.grab.z = pk.radius * 0.15;
+      pk.grab = _v1.copy(this.axes.R).multiplyScalar(side).applyQuaternion(this.head.getWorldQuaternion(_q1)).transformDirection(this.viewer.camera.matrixWorldInverse).multiplyScalar(pk.radius * 0.12).clone();
+      pk.grab.z = pk.radius * 0.06;
       pk.offset.copy(pk.grab);
       this.touch.holding = true;
       this.touch.gaze = null; // looks at you while being pinched
@@ -599,9 +628,10 @@ export class Avatar {
       const pk = this.poke;
       const m = this.pixelToWorld(1);
       const sx = (T.x - T.x0) * m, sy = -(T.y - T.y0) * m;
-      const len = Math.hypot(sx, sy), max = pk.radius * 0.9;
-      const k = len > max ? max / len : 1;
-      pk.offset.set(sx * k, sy * k, 0).add(pk.grab).setZ(pk.grab.z + Math.min(len, max) * 0.3);
+      // skin resists more the further it goes: soft limit at ~a third of the radius (a few millimetres)
+      const len = Math.hypot(sx, sy), max = pk.radius * 0.38;
+      const k = len > 1e-6 ? (max * Math.tanh(len * 0.6 / max)) / len : 0;
+      pk.offset.set(sx * k, sy * k, 0).add(pk.grab).setZ(pk.grab.z + len * k * 0.25);
     } else if (T.pat) {
       // stroking: count direction changes, lean the head with the hand
       const dir = Math.sign(dx);
@@ -636,7 +666,7 @@ export class Avatar {
     const pk = this.poke;
     pk.kind = 1; pk.release = false; pk.vel.set(0, 0, 0); pk.offset.set(0, 0, 0);
     pk.local = hit.fc.clone();
-    pk.radius = this.face.size * 0.45;
+    pk.radius = this.face.size * 0.3;
     this.phases = []; this.phasePriority = 0;
     this.setExpr(this.annoy > 0.7 ? 'pout' : 'happy', 0.6);
   }
@@ -660,11 +690,11 @@ export class Avatar {
       this.annoy = Math.max(0, this.annoy - dt * 0.15);
       this.setExpr(this.annoy > 0.7 ? 'pout' : T.patTime > 2.5 ? 'bliss' : 'happy', joy);
       // pressed down by the hand, tilting into it
-      this.poseTarget.nod = 0.06 + 0.05 * T.patV;
-      this.poseTarget.tilt = -T.patX * 0.14 + Math.sin(this.t * 6) * 0.02 * T.patV;
+      this.poseTarget.nod = 0.035 + 0.025 * T.patV;
+      this.poseTarget.tilt = -T.patX * 0.08 + Math.sin(this.t * 5) * 0.01 * T.patV;
       this.poseTarget.turn = 0; this.poseTarget.lean = 0;
       this.blushTarget = clamp(0.25 + T.patTime * 0.12, 0, 0.75);
-      const press = this.face.size * (0.05 + 0.06 * T.patV);
+      const press = this.face.size * (0.012 + 0.014 * T.patV); // just the hair giving a little, not the skull
       // push the hair down along the head's "up", in view space
       const up = _v1.copy(this.axes.U).applyQuaternion(this.head.getWorldQuaternion(_q1)).transformDirection(this.viewer.camera.matrixWorldInverse);
       this.poke.offset.copy(up).multiplyScalar(-press);
@@ -675,7 +705,7 @@ export class Avatar {
       this.setExpr(mad ? 'pinchedMad' : 'pinched', 1);
       const s = T.zone === 'cheekR' ? 1 : -1;
       // the head goes along with the pull a little
-      this.poseTarget.turn = clamp(this.poke.offset.x * 3, -0.1, 0.1);
+      this.poseTarget.turn = clamp(this.poke.offset.x * 4, -0.06, 0.06);
       this.poseTarget.tilt = -clamp(this.poke.offset.x * 4, -0.1, 0.1) + s * 0.02;
       this.poseTarget.nod = clamp(-this.poke.offset.y * 4, -0.08, 0.08);
       this.blushTarget = 0.5;
@@ -692,7 +722,7 @@ export class Avatar {
     }
     const long = dur > 2;
     this.react([
-      { d: 0.8, expr: long ? 'bliss' : 'happy', w: 0.8, pose: { nod: 0.03 }, blush: long ? 0.6 : 0.35, emote: long ? 'heart' : null },
+      { d: 0.8, expr: long ? 'bliss' : 'happy', w: 0.8, pose: { nod: 0.03 }, blush: long ? 0.6 : 0.35, emote: long ? 'heart' : null, gesture: long && !T.gestured ? 'shy' : null, hold: 1.2 },
       { d: 2.2, expr: 'smile', blush: long ? 0.4 : 0.15 },
       { d: 0.1 },
     ]);
@@ -703,12 +733,12 @@ export class Avatar {
     const pk = this.poke;
     // push in and spring out
     pk.kind = 2; pk.release = true;
-    pk.vel.set(0, 0, -this.face.size * 1.6);
+    pk.vel.set(0, 0, -this.face.size * 0.6);
     this.annoy = Math.min(1, this.annoy + 0.12);
     const s = z === 'cheekR' ? 1 : -1;
     this.react([
       { d: 0.35, expr: 'squint', w: 0.7, pose: { tilt: -s * 0.06, turn: -s * 0.05 } },
-      { d: 1.4, expr: this.annoy > 0.5 ? 'pout' : 'curious', blush: 0.25, emote: this.annoy > 0.5 ? 'dots' : 'huh' },
+      { d: 1.4, expr: this.annoy > 0.5 ? 'pout' : 'curious', blush: 0.25, emote: this.annoy > 0.5 ? 'dots' : 'huh', gesture: Math.random() < 0.5 ? 'touched' : null, hold: 0.8 },
       { d: 0.1 },
     ], { priority: 2 });
   }
@@ -717,7 +747,7 @@ export class Avatar {
     const mad = this.annoy > 0.6;
     this.react([
       { d: 0.25, expr: 'surprised', w: 0.6 },
-      { d: mad ? 2.4 : 1.6, expr: mad ? 'angry' : 'pout', blush: 0.4, pose: { turn: mad ? 0.35 : 0.12, tilt: -0.05, nod: 0.03 }, emote: mad ? 'mad' : 'sweat', gesture: mad ? 'complain' : null, hold: 0.8 },
+      { d: mad ? 2.4 : 1.6, expr: mad ? 'angry' : 'pout', blush: 0.4, pose: { turn: mad ? 0.35 : 0.12, tilt: -0.05, nod: 0.03 }, emote: mad ? 'mad' : 'sweat', gesture: mad ? 'complain' : 'touched', hold: 0.8 },
       { d: 1, expr: 'pout', w: 0.5, blush: 0.2 },
       { d: 0.1 },
     ], { priority: 2 });
@@ -732,10 +762,10 @@ export class Avatar {
     switch (z) {
       case 'eye':
         this.annoy = Math.min(1, this.annoy + 0.25);
-        this.react([{ d: 0.6, expr: 'squint', pose: { nod: 0.08, lean: 0.05 } }, { d: 1.6, expr: 'angry', w: 0.7, emote: 'mad', blush: 0.15 }, { d: 0.1 }], { priority: 2 });
+        this.react([{ d: 0.6, expr: 'squint', pose: { nod: 0.08, lean: 0.05 } }, { d: 1.6, expr: 'angry', w: 0.7, emote: 'mad', blush: 0.15, gesture: 'endure', hold: 0.8 }, { d: 0.1 }], { priority: 2 });
         break;
       case 'mouth':
-        this.react([{ d: 0.3, expr: 'squint', w: 0.6, pose: { lean: 0.06, nod: -0.04 } }, { d: 0.6, expr: 'surprised', w: 0.8, emote: 'bang' }, { d: 1.6, expr: this.annoy > 0.5 ? 'pout' : 'laugh', w: 0.7, blush: 0.3 }, { d: 0.1 }], { priority: 2 });
+        this.react([{ d: 0.3, expr: 'squint', w: 0.6, pose: { lean: 0.06, nod: -0.04 } }, { d: 0.6, expr: 'surprised', w: 0.8, emote: 'bang' }, { d: 1.6, expr: this.annoy > 0.5 ? 'pout' : 'laugh', w: 0.7, blush: 0.3, gesture: 'hush', hold: 0.8 }, { d: 0.1 }], { priority: 2 });
         break;
       case 'chest':
       case 'hips': {
@@ -756,10 +786,10 @@ export class Avatar {
       case 'hand':
       case 'arm':
         this.affection = Math.min(1, this.affection + 0.04);
-        this.react([{ d: 0.4, expr: 'curious', pose: { tilt: 0.06 * s } }, { d: 1.8, expr: 'happy', w: 0.7, blush: 0.25, emote: 'heart' }, { d: 0.1 }]);
+        this.react([{ d: 0.4, expr: 'curious', pose: { tilt: 0.06 * s } }, { d: 1.8, expr: 'happy', w: 0.7, blush: 0.25, emote: 'heart', gesture: 'pleased', hold: 1 }, { d: 0.1 }]);
         break;
       case 'shoulder':
-        this.react([{ d: 0.3, expr: 'surprised', w: 0.5, pose: { turn: 0.3 * s } }, { d: 1.6, expr: 'curious', pose: { turn: 0.15 * s, tilt: 0.08 * s }, emote: 'huh' }, { d: 0.6, expr: 'smile' }, { d: 0.1 }]);
+        this.react([{ d: 0.3, expr: 'surprised', w: 0.5, pose: { turn: 0.3 * s } }, { d: 1.6, expr: 'curious', pose: { turn: 0.15 * s, tilt: 0.08 * s }, emote: 'huh', gesture: 'think', hold: 1 }, { d: 0.6, expr: 'smile' }, { d: 0.1 }]);
         break;
       default: break;
     }
@@ -774,8 +804,11 @@ export class Avatar {
   // floating emote next to the head
   emote(name) {
     const layer = this.emoteLayer; if (!layer) return;
-    const p = this.toWorld(new THREE.Vector3(this.face.halfW * 1.1, this.face.top, this.face.center.z)).project(this.viewer.camera);
+    // beside the head at brow height, kept well inside the screen
+    const F = this.face;
+    const p = this.toWorld(new THREE.Vector3(F.halfW * 1.25, (F.eyeY + F.top) / 2, F.center.z)).project(this.viewer.camera);
     const r = this.viewer.canvas.getBoundingClientRect();
+    p.x = clamp(p.x, -0.75, 0.75); p.y = clamp(p.y, -0.6, 0.62);
     const el = document.createElement('div');
     el.className = 'emote emote-' + name;
     el.textContent = EMOTE[name] ?? name;
