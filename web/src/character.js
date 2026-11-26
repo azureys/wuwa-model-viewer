@@ -323,7 +323,7 @@ export class Rig {
       mesh.userData.section = { rig: this, sectionId };
       let outline = null;
       if (material.userData.kind !== 3 && material.userData.kind !== 4) {
-        outline = new THREE.SkinnedMesh(s.geometry, makeOutlineMaterial({ name: s.matRef.name, ol: ms.ol, map: ms.olMap, albedoMap: ms.map }));
+        outline = new THREE.SkinnedMesh(s.geometry, makeOutlineMaterial({ name: s.matRef.name, ol: ms.ol, map: ms.olMap, albedoMap: ms.map, kind: material.userData.kind }));
         outline.frustumCulled = false;
         outline.renderOrder = -1;
         outline.raycast = () => {};

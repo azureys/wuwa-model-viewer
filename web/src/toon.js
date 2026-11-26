@@ -13,6 +13,17 @@ export const toonGlobals = {
   uSaturation: { value: 1.0 },
   uExposure: { value: 1.0 },
   uHighlight: { value: -1.0 }, // section/island highlight for the pick tool
+  // Avatar mode: one soft "poke" that pushes the surface of one material kind (cheek pinch, head pat),
+  // all in view space so it follows the skinned mesh. uPokeKind -1 = off.
+  uPokeKind: { value: -1 },
+  uPokeCenter: { value: new THREE.Vector3() },
+  uPokeOffset: { value: new THREE.Vector3() },
+  uPokeRadius: { value: 0.02 },
+  // Avatar mode: blush on both cheeks of the face material (view-space centres)
+  uBlush: { value: 0 },
+  uBlushL: { value: new THREE.Vector3() },
+  uBlushR: { value: new THREE.Vector3() },
+  uBlushRadius: { value: 0.02 },
 };
 
 const vertexCommon = /* glsl */`
@@ -27,6 +38,17 @@ varying vec3 vNormalV;
 varying vec3 vViewPos;
 varying float vHide;
 varying vec4 vCol;
+uniform int uKind;
+uniform int uPokeKind;
+uniform vec3 uPokeCenter;
+uniform vec3 uPokeOffset;
+uniform float uPokeRadius;
+void applyPoke(inout vec4 mvPos) {
+  if (uPokeKind != uKind) return;
+  vec3 d = mvPos.xyz - uPokeCenter;
+  float w = exp(-dot(d, d) / (uPokeRadius * uPokeRadius));
+  mvPos.xyz += uPokeOffset * w;
+}
 `;
 
 const toonVertex = /* glsl */`
@@ -45,6 +67,8 @@ void main() {
   #include <morphtarget_vertex>
   #include <skinning_vertex>
   #include <project_vertex>
+  applyPoke(mvPosition);
+  gl_Position = projectionMatrix * mvPosition;
   #include <worldpos_vertex>
   #include <shadowmap_vertex>
   vNormalV = normalize(transformedNormal);
@@ -79,6 +103,10 @@ uniform float uSpecStrength;
 uniform float uSaturation;
 uniform float uExposure;
 uniform float uHighlight;
+uniform float uBlush;
+uniform vec3 uBlushL;
+uniform vec3 uBlushR;
+uniform float uBlushRadius;
 varying vec2 vUv;
 varying vec3 vNormalV;
 varying vec3 vViewPos;
@@ -183,6 +211,12 @@ void main() {
   color += spec * mix(albedo, vec3(1.0), 0.5);
   color += rim * uRimStrength * mix(albedo, vec3(1.0), 0.35) * 0.5;
 
+  if (uKind == 2 && uBlush > 0.001) {
+    vec3 p = -vViewPos;
+    float r2 = uBlushRadius * uBlushRadius;
+    float b = exp(-dot(p - uBlushL, p - uBlushL) / r2) + exp(-dot(p - uBlushR, p - uBlushR) / r2);
+    color = mix(color, color * vec3(1.0, 0.62, 0.62) + vec3(0.06, 0.0, 0.012), clamp(b * uBlush, 0.0, 1.0) * 0.75);
+  }
   float luma = dot(color, vec3(0.299, 0.587, 0.114));
   color = mix(vec3(luma), color, uSaturation) * uExposure;
   if (uHighlight >= 0.0 && abs(uHighlight - uSectionId) < 0.5) color = mix(color, vec3(1.0, 0.35, 0.6), 0.45);
@@ -211,6 +245,7 @@ void main() {
   #include <morphtarget_vertex>
   #include <skinning_vertex>
   #include <project_vertex>
+  applyPoke(mvPosition);
   vec3 nV = normalize(normalMatrix * objectNormal);
   float w = uWidth * uOutlineScale * uOutlineOn * vcol.g * 0.0011 * clamp(-mvPosition.z, 0.4, 5.0);
   mvPosition.xyz += nV * w;
@@ -293,7 +328,7 @@ export function makeToonMaterial({ name, mat, map, maskMap, sectionId }) {
   return m;
 }
 
-export function makeOutlineMaterial({ name, ol, map, albedoMap }) {
+export function makeOutlineMaterial({ name, ol, map, albedoMap, kind = 0 }) {
   const cols = ol?.colors ?? {};
   const scal = ol?.scalars ?? {};
   const useMap = !!(ol?.switches?.UseMainTex && map);
@@ -311,6 +346,11 @@ export function makeOutlineMaterial({ name, ol, map, albedoMap }) {
       uOutlineScale: toonGlobals.uOutlineScale,
       uOutlineOn: toonGlobals.uOutlineOn,
       uExposure: toonGlobals.uExposure,
+      uKind: { value: kind },
+      uPokeKind: toonGlobals.uPokeKind,
+      uPokeCenter: toonGlobals.uPokeCenter,
+      uPokeOffset: toonGlobals.uPokeOffset,
+      uPokeRadius: toonGlobals.uPokeRadius,
     },
     vertexShader: outlineVertex, fragmentShader: outlineFragment, side: THREE.BackSide,
   });

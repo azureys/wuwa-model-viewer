@@ -312,3 +312,18 @@ input, textarea { -webkit-user-select: text; user-select: text; }
    (iOS reports a viewport shorter than the screen with the translucent status bar) */
 html.ios-full, html.ios-full body { height: var(--app-h); }
 html.ios-full #app, html.ios-full #store { height: var(--app-h); bottom: auto; }
+
+/* ------------------------------------------------------------------ avatar mode */
+body.avatar #topbar, body.avatar #tabs, body.avatar #sheet, body.avatar #player, body.avatar #pickHint { display: none !important; }
+body.avatar #view { touch-action: none; }
+#avatar { position: absolute; inset: 0; z-index: 10; pointer-events: none; }
+#avatarTop { position: absolute; top: 0; left: 0; right: 0; display: flex; justify-content: space-between; padding: calc(8px + var(--safe-t)) 10px; pointer-events: none; }
+#avatarTop > * { pointer-events: auto; }
+#avatarHint { position: absolute; left: 50%; bottom: calc(18px + var(--safe-b)); transform: translateX(-50%); padding: 9px 16px; border-radius: 999px; font-size: 13px; white-space: nowrap; pointer-events: none; transition: opacity .6s; }
+#avatarHint.gone { opacity: 0; }
+#emotes { position: absolute; inset: 0; overflow: hidden; pointer-events: none; }
+.emote { position: fixed; transform: translate(-50%, -50%); font-size: 34px; font-weight: 800; line-height: 1; color: #ff5d8f; text-shadow: 0 2px 8px rgba(0,0,0,.35); animation: emote 1.6s ease-out forwards; pointer-events: none; }
+.emote-bang, .emote-huh { color: #ffd257; }
+.emote-note { color: #7fd1c7; }
+.emote-dots { color: #fff; }
+@keyframes emote { 0% { transform: translate(-50%, -20%) scale(.4); opacity: 0; } 15% { transform: translate(-50%, -50%) scale(1.15); opacity: 1; } 30% { transform: translate(-50%, -55%) scale(1); } 75% { opacity: 1; } 100% { transform: translate(-50%, -120%) scale(1); opacity: 0; } }

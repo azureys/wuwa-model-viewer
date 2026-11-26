@@ -27,6 +27,7 @@
     <label class="glass" id="weaponPill" title="Weapon" hidden><i data-icon="sword"></i><span id="weaponName"></span><i data-icon="chevron"></i><select id="weaponSelect"></select></label>
     <div class="tb-right">
       <button class="icon glass" id="btnResetView" title="Reset camera"><i data-icon="recenter"></i></button>
+      <button class="icon glass" id="btnAvatar" title="Interact"><i data-icon="heart"></i></button>
       <button class="icon glass" id="btnPhoto" title="Photo mode"><i data-icon="camera"></i></button>
       <button class="icon glass" id="btnHideUi" title="Hide interface"><i data-icon="eye"></i></button>
     </div>
@@ -89,6 +90,16 @@
     </div>
   </div>
   <div id="flash" hidden></div>
+
+  <!-- avatar mode -->
+  <div id="avatar" hidden>
+    <div id="avatarTop">
+      <button class="icon glass" id="btnAvatarExit" title="Exit"><i data-icon="close"></i></button>
+      <button class="icon glass" id="btnAvatarFrame" title="Face / upper body"><i data-icon="user"></i></button>
+    </div>
+    <div id="avatarHint" class="glass">Pat the head · pinch a cheek · tap anywhere</div>
+    <div id="emotes"></div>
+  </div>
 
   <div id="library" hidden>
     <div class="lib-head">
