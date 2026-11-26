@@ -114,6 +114,18 @@ class MainActivity : ComponentActivity() {
         handleIntent(intent)
     }
 
+    // Music: tell the page directly when the app leaves / returns to the screen (the WebView's own
+    // visibility events are not reliable when the activity is paused).
+    override fun onPause() {
+        super.onPause()
+        if (::web.isInitialized) web.evaluateJavascript("window.__wuwaAudio && window.__wuwaAudio(false)", null)
+    }
+
+    override fun onResume() {
+        super.onResume()
+        if (::web.isInitialized) web.evaluateJavascript("window.__wuwaAudio && window.__wuwaAudio(true)", null)
+    }
+
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         handleIntent(intent)
