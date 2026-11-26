@@ -10,6 +10,7 @@ import { initMusic } from './music.js';
 import { fetchRoster, fetchCharacter, downloadCharacter, downloadWeapon } from './encore.js';
 import { icon, hydrateIcons } from './icons.js';
 import { BACKGROUNDS, DEFAULT_BACKGROUND, backgroundThumb } from './backgrounds.js';
+import { Avatar } from './avatar.js';
 import { $, h, toast, status, slider, toggle, chips, popMenu, popover, dropdown } from './ui.js';
 
 hydrateIcons();
@@ -110,6 +111,7 @@ async function openModel(id, name) {
 }
 
 function disposeModel() {
+  if (avatar.active) { avatar.exit(); document.body.classList.remove('avatar'); $('#avatar').hidden = true; viewer.controls.enabled = true; }
   S.mixer?.stopAllAction();
   for (const x of S.extras) for (const p of x.pieces) { p.mixer?.stopAllAction(); p.rig?.dispose(); }
   S.rig?.dispose();
@@ -317,6 +319,7 @@ function applyMorphs() {
 
 viewer.onBeforeRender.push((dt) => {
   if (!S.rig) return;
+  if (avatar.active) { avatar.update(dt); springs.update(dt); return; }
   if (!pose.active && !S.bindPose && S.clip) {
     if (S.playing) {
       let t = S.time + dt * S.speed;
@@ -397,7 +400,7 @@ let down = null;
 viewer.canvas.addEventListener('pointerdown', (e) => { down = { x: e.clientX, y: e.clientY, t: performance.now() }; });
 let lastTap = null, tapTimer = null;
 viewer.canvas.addEventListener('pointerup', (e) => {
-  if (!down) return;
+  if (!down || avatar.active) return;
   const moved = Math.hypot(e.clientX - down.x, e.clientY - down.y), dt = performance.now() - down.t;
   down = null;
   if (moved > 8 || dt > 500) return;
@@ -1120,6 +1123,57 @@ platform.onImportDone((r) => {
 });
 platform.onFileSaved((msg) => toast(msg));
 
+// ---------------------------------------------------------------- avatar mode
+const avatar = new Avatar({ viewer });
+avatar.manual = S.morphValues;
+avatar.emoteLayer = $('#emotes');
+const avatarSaved = {};
+async function enterAvatar() {
+  if (!S.rig || avatar.active || avatarSaved.busy) { if (!S.rig) toast('Open a character first'); return; }
+  avatarSaved.busy = true;
+  exitPhoto();
+  setCutMode(false);
+  if (pose.active) pose.setActive(false);
+  S.tab = null; renderTab();
+  Object.assign(avatarSaved, { pos: viewer.camera.position.clone(), target: viewer.controls.target.clone(), playing: S.playing });
+  for (const x of S.extras) for (const p of x.pieces) if (p.rig) p.rig.group.visible = false;
+  try {
+    status('Getting ready…');
+    document.body.classList.add('avatar');
+    updateInset();
+    viewer.controls.enabled = false;
+    await avatar.enter({ rig: S.rig, mixer: S.mixer, pkg: S.pkg, cat: S.cat });
+    springs.reset();
+    $('#avatar').hidden = false;
+    const hint = $('#avatarHint');
+    hint.classList.remove('gone');
+    clearTimeout(enterAvatar.t); enterAvatar.t = setTimeout(() => hint.classList.add('gone'), 5000);
+  } catch (e) {
+    console.error(e);
+    toast('Interact mode is not available for this model: ' + e.message, 5000);
+    leaveAvatar();
+  } finally { status(null); avatarSaved.busy = false; }
+}
+async function leaveAvatar() {
+  avatar.exit();
+  document.body.classList.remove('avatar');
+  $('#avatar').hidden = true;
+  $('#emotes').replaceChildren();
+  viewer.controls.enabled = true;
+  if (avatarSaved.pos) viewer.tween = { t: 0, p0: viewer.camera.position.clone(), t0: viewer.controls.target.clone(), p1: avatarSaved.pos, t1: avatarSaved.target };
+  updateInset();
+  if (S.rig && S.animPath) { await playAnim(S.animPath); S.playing = avatarSaved.playing ?? true; updatePlayer(); }
+}
+$('#btnAvatar').onclick = () => enterAvatar();
+$('#btnAvatarExit').onclick = () => leaveAvatar();
+$('#btnAvatarFrame').onclick = () => gestureHint(avatar.toggleFraming() === 'face' ? 'Face' : 'Upper body');
+viewer.canvas.addEventListener('pointerdown', (e) => { if (avatar.active) { viewer.canvas.setPointerCapture?.(e.pointerId); avatar.pointerDown(e); } });
+viewer.canvas.addEventListener('pointermove', (e) => { if (avatar.active) avatar.pointerMove(e); });
+viewer.canvas.addEventListener('pointerup', (e) => { if (avatar.active) avatar.pointerUp(e); });
+viewer.canvas.addEventListener('pointercancel', (e) => { if (avatar.active) avatar.pointerUp(e); });
+viewer.canvas.addEventListener('pointerleave', (e) => { if (avatar.active && e.pointerType === 'mouse') avatar.hover = null; });
+addEventListener('resize', () => { if (avatar.active) avatar.frame(true); });
+
 // ---------------------------------------------------------------- photo mode
 const photo = { on: false, ratio: platform.store.get('photoRatio', '9:16'), timer: platform.store.get('photoTimer', 0) };
 const RATIOS = [['full', 'Full'], ['9:16', '9:16'], ['4:5', '4:5'], ['1:1', '1:1']];
@@ -1194,12 +1248,13 @@ if (platform.isIOS && !platform.isStandalone) {
 })();
 document.addEventListener('visibilitychange', () => { if (S.modelId) platform.store.set('lastModel', S.modelId); });
 initMusic();
-window.__dbg = { S, viewer, pose, springs, THREE, playAnim, renderTab, setCutMode, enterPhoto, exitPhoto, openStorage, openLibrary };
+window.__dbg = { S, viewer, pose, springs, avatar, enterAvatar, leaveAvatar, THREE, playAnim, renderTab, setCutMode, enterPhoto, exitPhoto, openStorage, openLibrary };
 // Android back button: close the open layer first
 window.__wuwaBack = () => {
   if (popover.close) { popover.close(); return true; }
   if (!$('#store').hidden) { $('#btnStoreBack').click(); return true; }
   if (!$('#library').hidden && S.rig) { closeLibrary(); return true; }
+  if (avatar.active) { leaveAvatar(); return true; }
   if (photo.on) { if (document.body.classList.contains('photo-bare')) document.body.classList.remove('photo-bare'); else exitPhoto(); return true; }
   if (S.cutMode) { setCutMode(false); renderTab(); return true; }
   if (S.tab) { S.tab = null; renderTab(); return true; }
