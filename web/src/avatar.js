@@ -88,7 +88,10 @@ export class Avatar {
       head: this.head, neck: rig.findBone('Bip001Neck'), chest: rig.findBone('Bip001Spine2'),
       spine1: rig.findBone('Bip001Spine1'), spine: rig.findBone('Bip001Spine'),
       clavL: rig.findBone('Bip001LClavicle'), clavR: rig.findBone('Bip001RClavicle'),
+      // soft-body bones some outfits have (left / right); the touch wiggle is skipped without them
+      chestL: rig.findBone('Bone_Chest001_L'), chestR: rig.findBone('Bone_Chest001_R'),
     };
+    this.jiggle = null;
     this.morphs = new Set(rig.morphIndex.keys());
     this.calibrate();
     // body idle: the calm dialog stance faces the camera; fall back to the menu idle the viewer played
@@ -496,6 +499,20 @@ export class Avatar {
     const faceFwd = _v2.copy(this.axes.F).applyQuaternion(B.head.getWorldQuaternion(_q1)).setY(0).normalize();
     this.rot(B.neck, faceFwd, P.tilt * 0.35);
     this.rot(B.head, faceFwd, P.tilt * 0.65);
+    // a short, damped bounce after a touch on the chest: a small detail, a few degrees at most
+    const J = this.jiggle;
+    if (J) {
+      J.t += dt;
+      const env = Math.exp(-J.t * 5.5);
+      if (env < 0.01) this.jiggle = null;
+      else {
+        const w = Math.sin(J.t * Math.PI * 2 * 3.2) * env, w2 = Math.sin(J.t * Math.PI * 2 * 2.3 + 0.8) * env;
+        for (const [bone, k] of [[B.chestL, J.side < 0 ? 1 : 0.6], [B.chestR, J.side > 0 ? 1 : 0.6]]) {
+          this.rot(bone, pitchAxis, w * 0.07 * k);
+          this.rot(bone, UP, w2 * 0.025 * k * (bone === B.chestL ? -1 : 1));
+        }
+      }
+    }
   }
 
   // ------------------------------------------------------------ shader effects
@@ -771,6 +788,10 @@ export class Avatar {
         break;
       case 'chest':
       case 'hips': {
+        if (z === 'chest' && (this.bones.chestL || this.bones.chestR)) {
+          const near = (b) => b ? b.getWorldPosition(_v1).distanceTo(T.hit.point) : Infinity;
+          if (Math.min(near(this.bones.chestL), near(this.bones.chestR)) < this.face.size * 1.2) this.jiggle = { t: 0, side: near(this.bones.chestL) < near(this.bones.chestR) ? -1 : 1 };
+        }
         this.annoy = Math.min(1, this.annoy + 0.35);
         const mad = this.annoy > 0.55;
         this.react([
