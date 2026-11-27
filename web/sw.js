@@ -1,7 +1,7 @@
 // Offline app shell for the iPhone / browser version. Models are not here: they live in IndexedDB.
 // The block between the AUTO markers is written by tools/gen-sw.mjs (run it after changing web/).
 // AUTO-BEGIN
-const VERSION = 'ca096f8b638e';
+const VERSION = '41ee7432a9d1';
 const ASSETS = [
  "./",
  "./audio/bgm.mp3",
