@@ -18,6 +18,8 @@ const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
 const EXPR = {
   neutral: {},
   smile: { M_Smile_L: 0.55, M_Smile_R: 0.55, B_Cheerful: 0.35 },
+  // warm but natural: eyes only soften a little
+  fond: { E_Smile_L: 0.22, E_Smile_R: 0.22, M_Smile_L: 0.6, M_Smile_R: 0.6, B_Happy: 0.4 },
   happy: { E_Smile_L: 0.9, E_Smile_R: 0.9, M_Smile_L: 0.8, M_Smile_R: 0.8, B_Happy: 0.7 },
   bliss: { E_Smile_L: 1, E_Smile_R: 1, M_Smile_L: 0.6, M_Smile_R: 0.6, B_Happy: 0.9, M_OpenSmall: 0.25 },
   laugh: { E_Smile_L: 1, E_Smile_R: 1, M_Laugh: 0.9, B_Happy: 0.8 },
@@ -747,7 +749,7 @@ export class Avatar {
     const mad = this.annoy > 0.6;
     this.react([
       { d: 0.25, expr: 'surprised', w: 0.6 },
-      { d: mad ? 2.4 : 1.6, expr: mad ? 'angry' : 'pout', blush: 0.4, pose: { turn: mad ? 0.35 : 0.12, tilt: -0.05, nod: 0.03 }, emote: mad ? 'mad' : 'sweat', gesture: mad ? 'complain' : 'touched', hold: 0.8 },
+      { d: mad ? 2.4 : 1.6, expr: mad ? 'angry' : 'pout', blush: 0.4, pose: { turn: mad ? 0.35 : 0.12, tilt: -0.05, nod: 0.03 }, emote: mad ? 'mad' : null, gesture: mad ? 'complain' : 'touched', hold: 0.8 },
       { d: 1, expr: 'pout', w: 0.5, blush: 0.2 },
       { d: 0.1 },
     ], { priority: 2 });
@@ -773,7 +775,7 @@ export class Avatar {
         const mad = this.annoy > 0.55;
         this.react([
           { d: 0.45, expr: 'surprised', pose: { lean: 0.12, nod: -0.05 }, blush: 0.9, emote: 'bang', gesture: mad ? 'complain' : 'scared', hold: 1 },
-          { d: mad ? 2.6 : 2, expr: mad ? 'angry' : 'flustered', blush: 1, pose: { turn: mad ? 0.45 * s : 0.2 * s, lean: 0.06 }, emote: mad ? 'mad' : 'sweat' },
+          { d: mad ? 2.6 : 2, expr: mad ? 'angry' : 'flustered', blush: 1, pose: { turn: mad ? 0.45 * s : 0.2 * s, lean: 0.06 }, emote: mad ? 'mad' : null },
           { d: 1.4, expr: 'pout', w: 0.6, blush: 0.5 },
           { d: 0.1 },
         ], { priority: 3 });
@@ -786,7 +788,7 @@ export class Avatar {
       case 'hand':
       case 'arm':
         this.affection = Math.min(1, this.affection + 0.04);
-        this.react([{ d: 0.4, expr: 'curious', pose: { tilt: 0.06 * s } }, { d: 1.8, expr: 'happy', w: 0.7, blush: 0.25, emote: 'heart', gesture: 'pleased', hold: 1 }, { d: 0.1 }]);
+        this.react([{ d: 0.4, expr: 'curious', pose: { tilt: 0.06 * s } }, { d: 1.8, expr: 'fond', blush: 0.25, emote: 'heart', gesture: 'pleased', hold: 1 }, { d: 0.1 }]);
         break;
       case 'shoulder':
         this.react([{ d: 0.3, expr: 'surprised', w: 0.5, pose: { turn: 0.3 * s } }, { d: 1.6, expr: 'curious', pose: { turn: 0.15 * s, tilt: 0.08 * s }, emote: 'huh', gesture: 'think', hold: 1 }, { d: 0.6, expr: 'smile' }, { d: 0.1 }]);
@@ -797,7 +799,7 @@ export class Avatar {
 
   // on entering: a little hello
   say(kind) {
-    if (kind === 'greet' && this.gesture('greet')) this.react([{ d: 2.2, expr: 'happy', w: 0.7, gesture: 'greet', blush: 0.15 }, { d: 0.1 }]);
+    if (kind === 'greet' && this.gesture('greet')) this.react([{ d: 2.2, expr: 'fond', gesture: 'greet', blush: 0.15 }, { d: 0.1 }]);
     else this.react([{ d: 1.8, expr: 'smile', blush: 0.1 }, { d: 0.1 }]);
   }
 
