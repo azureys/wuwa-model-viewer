@@ -90,6 +90,7 @@ export class Avatar {
       clavL: rig.findBone('Bip001LClavicle'), clavR: rig.findBone('Bip001RClavicle'),
       // soft-body bones some outfits have (left / right); the touch wiggle is skipped without them
       chestL: rig.findBone('Bone_Chest001_L'), chestR: rig.findBone('Bone_Chest001_R'),
+      chestL2: rig.findBone('Bone_Chest002_L'), chestR2: rig.findBone('Bone_Chest002_R'),
     };
     this.jiggle = null;
     this.morphs = new Set(rig.morphIndex.keys());
@@ -499,17 +500,20 @@ export class Avatar {
     const faceFwd = _v2.copy(this.axes.F).applyQuaternion(B.head.getWorldQuaternion(_q1)).setY(0).normalize();
     this.rot(B.neck, faceFwd, P.tilt * 0.35);
     this.rot(B.head, faceFwd, P.tilt * 0.65);
-    // a short, damped bounce after a touch on the chest: a small detail, a few degrees at most
+    // a short, damped bounce after a touch on the chest (noticeable but not exaggerated)
     const J = this.jiggle;
     if (J) {
       J.t += dt;
-      const env = Math.exp(-J.t * 5.5);
+      const env = Math.exp(-J.t * 3.8);
       if (env < 0.01) this.jiggle = null;
       else {
         const w = Math.sin(J.t * Math.PI * 2 * 3.2) * env, w2 = Math.sin(J.t * Math.PI * 2 * 2.3 + 0.8) * env;
-        for (const [bone, k] of [[B.chestL, J.side < 0 ? 1 : 0.6], [B.chestR, J.side > 0 ? 1 : 0.6]]) {
-          this.rot(bone, pitchAxis, w * 0.07 * k);
-          this.rot(bone, UP, w2 * 0.025 * k * (bone === B.chestL ? -1 : 1));
+        // the tip lags a little behind the root, which reads as soft rather than rigid
+        const w3 = Math.sin(J.t * Math.PI * 2 * 3.2 - 0.9) * env;
+        for (const [bone, tip, k, sgn] of [[B.chestL, B.chestL2, J.side < 0 ? 1 : 0.7, -1], [B.chestR, B.chestR2, J.side > 0 ? 1 : 0.7, 1]]) {
+          this.rot(bone, pitchAxis, w * 0.15 * k);
+          this.rot(bone, UP, w2 * 0.05 * k * sgn);
+          this.rot(tip, pitchAxis, w3 * 0.1 * k);
         }
       }
     }
